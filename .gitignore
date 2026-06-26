@@ -18,3 +18,10 @@ config.ini
 
 # NB: tcg_tracker.db e dashboard/data/*.json SONO committati apposta:
 #     sono lo storico dei prezzi e i dati della dashboard.
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
