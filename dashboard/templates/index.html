@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TCG Tracker — Buying Prices</title>
+<style>
+:root{
+  --base:#14161b; --panel:#1b1e25; --panel2:#21252e; --line:#2c313c;
+  --ink:#ECE9E1; --muted:#8b93a3; --faint:#5c6473;
+  --cr:#E8503A; --cr-dim:#3a201c; --hr:#4E8FE0; --hr-dim:#1b2a3f;
+  --gold:#E0B24E; --good:#5fb878;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--base);color:var(--ink);
+  font-family:"Space Grotesk",ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif}
+.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+a{color:inherit}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 20px 80px}
+
+/* header */
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line);padding-bottom:18px}
+.brand{display:flex;align-items:center;gap:14px}
+.glyph{width:42px;height:42px;border:1.5px solid var(--gold);border-radius:9px;display:grid;place-items:center;
+  color:var(--gold);font-weight:700;font-size:20px;transform:rotate(-4deg)}
+h1{font-size:21px;margin:0;letter-spacing:.3px}
+.sub{color:var(--muted);font-size:12.5px;margin-top:3px;letter-spacing:.2px}
+.updated{font-size:11.5px;color:var(--faint);text-align:right}
+.updated b{color:var(--muted);font-weight:500}
+
+/* kpis */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0 8px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi .n{font-size:25px;font-weight:600}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-top:2px}
+.kpi.cr .n{color:var(--cr)} .kpi.hr .n{color:var(--hr)}
+.split{height:7px;border-radius:5px;overflow:hidden;display:flex;margin-top:10px;background:var(--panel2)}
+.split i{display:block;height:100%}
+
+/* controls */
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:22px 0 14px}
+.search{flex:1;min-width:220px;display:flex;align-items:center;gap:8px;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;padding:9px 13px}
+.search input{flex:1;background:none;border:none;color:var(--ink);font-size:14px;outline:none}
+.search input::placeholder{color:var(--faint)}
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted);align-items:center}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
+.chip{font-size:11.5px;padding:5px 11px;border-radius:20px;border:1px solid var(--line);
+  background:var(--panel);color:var(--muted);cursor:pointer;transition:.12s;letter-spacing:.2px}
+.chip:hover{border-color:var(--faint);color:var(--ink)}
+.chip.on{background:var(--ink);color:var(--base);border-color:var(--ink);font-weight:600}
+
+/* set group */
+.set{margin-bottom:26px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel)}
+.set-h{display:flex;align-items:center;gap:12px;padding:13px 18px;background:var(--panel2);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
+.pack{font-size:11px;font-weight:700;letter-spacing:1px;color:var(--gold);
+  border:1px solid var(--gold);border-radius:6px;padding:3px 8px}
+.set-name{font-size:15px;font-weight:600}
+.set-meta{margin-left:auto;font-size:11.5px;color:var(--muted)}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+thead th{font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--faint);
+  text-align:right;padding:9px 18px;font-weight:500;border-bottom:1px solid var(--line)}
+thead th.l{text-align:left}
+tbody td{padding:11px 18px;border-bottom:1px solid #23272f;text-align:right;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#1f232b}
+td.code{text-align:left;color:var(--muted);font-size:12.5px}
+td.name{text-align:left;max-width:330px;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.price{font-size:14px;font-weight:500}
+.price.na{color:var(--faint);font-weight:400}
+.cr-c{color:var(--cr)} .hr-c{color:var(--hr)}
+.win{position:relative}
+.best{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
+  padding:3px 9px;border-radius:20px}
+.best.cardrush{background:var(--cr-dim);color:var(--cr)}
+.best.hareruya{background:var(--hr-dim);color:var(--hr)}
+.best.none{background:var(--panel2);color:var(--faint)}
+.spread{font-size:11px;color:var(--muted)} .spread b{color:var(--good);font-weight:600}
+.comm{color:var(--muted);font-size:12px}
+.empty{padding:40px;text-align:center;color:var(--faint)}
+.foot{margin-top:30px;font-size:11px;color:var(--faint);text-align:center;line-height:1.7}
+@media(max-width:720px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  td.comm,th.comm,td.name,th.name{display:none}
+}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="brand">
+      <div class="glyph">¥</div>
+      <div>
+        <h1>TCG Tracker — Buying Prices</h1>
+        <div class="sub">Confronto offerte d'acquisto · CardRush vs Hareruya · mercato giapponese</div>
+      </div>
+    </div>
+    <div class="updated">ultimo aggiornamento<br><b id="upd"></b></div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="n" id="k-sets">0</div><div class="l">Set monitorati</div></div>
+    <div class="kpi"><div class="n" id="k-cards">0</div><div class="l">Carte tracciate</div></div>
+    <div class="kpi cr"><div class="n" id="k-cr">0</div><div class="l">Best su CardRush</div>
+      <div class="split"><i id="bar-cr" style="background:var(--cr)"></i><i id="bar-hr" style="background:var(--hr)"></i></div></div>
+    <div class="kpi hr"><div class="n" id="k-hr">0</div><div class="l">Best su Hareruya</div></div>
+  </div>
+
+  <div class="controls">
+    <div class="search">
+      <span style="color:var(--faint)">⌕</span>
+      <input id="q" placeholder="Cerca per codice o nome carta…">
+    </div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--cr)"></span>CardRush</span>
+      <span><span class="dot" style="background:var(--hr)"></span>Hareruya</span>
+      <span><span class="dot" style="background:var(--gold)"></span>migliore offerta</span>
+    </div>
+  </div>
+  <div class="chips" id="chips"></div>
+
+  <div id="list"></div>
+
+  <div class="foot">
+    I prezzi mostrati provengono dal database <span class="mono">tcg_tracker</span> (vista <span class="mono">v_buylist</span>),
+    popolato dallo scraper. Struttura identica al foglio “BuyList Pokemon”: l'Excel originale non viene modificato.<br>
+    “+10%” = buying price maggiorato della commissione, come la colonna F dell'Excel.
+  </div>
+</div>
+
+<script>
+let DATA = []; let UPDATED = new Date().toLocaleString("it-IT");
+const yen = v => v==null ? "—" : "¥"+Number(v).toLocaleString("ja-JP");
+
+let groups={}, order=[];
+function regroup(){
+  document.getElementById("upd").textContent = UPDATED;
+  groups={};
+  for(const r of DATA){ (groups[r.pack_code] ??= {name:r.set_name, order:r.set_order, rows:[]}).rows.push(r); }
+  order = Object.entries(groups).sort((a,b)=>a[1].order-b[1].order);
+  const crBest = DATA.filter(r=>r.best_source==="cardrush").length;
+  const hrBest = DATA.filter(r=>r.best_source==="hareruya").length;
+  document.getElementById("k-sets").textContent = order.length;
+  document.getElementById("k-cards").textContent = DATA.length;
+  document.getElementById("k-cr").textContent = crBest;
+  document.getElementById("k-hr").textContent = hrBest;
+  const tot = crBest+hrBest || 1;
+  document.getElementById("bar-cr").style.width = (crBest/tot*100)+"%";
+  document.getElementById("bar-hr").style.width = (hrBest/tot*100)+"%";
+}
+
+// chips
+const chipsEl = document.getElementById("chips");
+let activeSet = "ALL";
+function buildChips(){
+  chipsEl.innerHTML="";
+  const all=document.createElement("div");
+  all.className="chip"+(activeSet==="ALL"?" on":""); all.textContent="Tutti i set";
+  all.onclick=()=>{activeSet="ALL";render()}; chipsEl.appendChild(all);
+  for(const [pc,g] of order){
+    const c=document.createElement("div");
+    c.className="chip"+(activeSet===pc?" on":""); c.textContent=pc+" · "+g.name;
+    c.onclick=()=>{activeSet=pc;render()}; chipsEl.appendChild(c);
+  }
+}
+
+function spread(cr,hr){
+  if(cr==null||hr==null) return "";
+  const lo=Math.min(cr,hr), hi=Math.max(cr,hr);
+  if(lo===0) return "";
+  const pct=Math.round((hi-lo)/lo*100);
+  return pct>0 ? `<span class="spread">+<b>${pct}%</b></span>` : "";
+}
+
+function rowHtml(r){
+  const crCls = r.cardrush_price==null?"price na":"price mono cr-c";
+  const hrCls = r.hareruya_price==null?"price na":"price mono hr-c";
+  const bs = r.best_source||"none";
+  const bestComm = bs==="cardrush"?r.cardrush_price_comm : bs==="hareruya"?r.hareruya_price_comm : null;
+  const badge = bs==="none" ? `<span class="best none">n/d</span>`
+    : `<span class="best ${bs}">${bs==="cardrush"?"CardRush":"Hareruya"} ${yen(r.best_price)}</span> ${spread(r.cardrush_price,r.hareruya_price)}`;
+  return `<tr>
+    <td class="code mono">${r.card_code}</td>
+    <td class="name">${(r.full_name||"").replace(/</g,"&lt;")}</td>
+    <td class="${crCls}">${yen(r.cardrush_price)}</td>
+    <td class="${hrCls}">${yen(r.hareruya_price)}</td>
+    <td class="win">${badge}</td>
+    <td class="comm mono">${bestComm!=null?yen(Math.round(bestComm)):"—"}</td>
+  </tr>`;
+}
+
+function render(){
+  buildChips();
+  const q=document.getElementById("q").value.trim().toLowerCase();
+  const list=document.getElementById("list"); list.innerHTML="";
+  let shown=0;
+  for(const [pc,g] of order){
+    if(activeSet!=="ALL" && activeSet!==pc) continue;
+    let rs=g.rows;
+    if(q) rs=rs.filter(r=>(r.card_code||"").toLowerCase().includes(q)||(r.full_name||"").toLowerCase().includes(q));
+    if(!rs.length) continue;
+    shown+=rs.length;
+    const sec=document.createElement("section"); sec.className="set";
+    sec.innerHTML=`
+      <div class="set-h"><span class="pack">${pc}</span><span class="set-name">${g.name}</span>
+        <span class="set-meta">${rs.length} cart${rs.length===1?"a":"e"}</span></div>
+      <table>
+        <thead><tr>
+          <th class="l">Codice</th><th class="l name">Carta</th>
+          <th>CardRush</th><th>Hareruya</th><th class="l">Migliore offerta</th><th class="comm">+10%</th>
+        </tr></thead>
+        <tbody>${rs.map(rowHtml).join("")}</tbody>
+      </table>`;
+    list.appendChild(sec);
+  }
+  if(!shown) list.innerHTML=`<div class="empty">Nessuna carta corrisponde alla ricerca.</div>`;
+}
+document.getElementById("q").addEventListener("input",render);
+fetch("/api/buylist").then(r=>r.json()).then(d=>{ DATA=d; boot(); }).catch(()=>boot());
+function boot(){ regroup(); render(); }
+</script>
+</body></html>

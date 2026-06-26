@@ -1,0 +1,54 @@
+name: Aggiorna prezzi TCG
+
+# Quando gira:
+#   - schedule: ogni LUNEDI' alle 06:00 UTC (settimanale).
+#       Per passare a GIORNALIERO usa:  cron: "0 6 * * *"
+#   - workflow_dispatch: pulsante "Run workflow" per lanciarlo a mano.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+# serve per poter ricommittare il DB e i JSON aggiornati nel repo
+permissions:
+  contents: write
+
+# evita run sovrapposti
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (include lo storico committato)
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installa dipendenze
+        run: pip install -r requirements.txt
+
+      - name: Crea il DB se manca (storico preservato se gia' presente)
+        run: python src/init_db.py
+
+      - name: Scraping prezzi (CardRush + Hareruya)
+        run: python src/run.py --sleep 1.0
+
+      - name: Commit dei dati aggiornati
+        run: |
+          git config user.name  "tcg-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tcg_tracker.db dashboard/data/buylist.json dashboard/data/history.json dashboard/buylist_live.json
+          if git diff --staged --quiet; then
+            echo "Nessuna variazione da committare."
+          else
+            git commit -m "chore: aggiornamento prezzi $(date -u +%Y-%m-%d)"
+            git push
+          fi

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts dell'eseguibile (PyInstaller)
+build/*.spec
+dist/
+*.exe
+
+# Config con credenziali (MySQL) - NON committare
+config.ini
+
+# Editor
+.vscode/
+.idea/
+
+# NB: tcg_tracker.db e dashboard/data/*.json SONO committati apposta:
+#     sono lo storico dei prezzi e i dati della dashboard.
