@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>TCG Tracker — Buying Prices</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{ --bg:#0f1320; --card:#171c2e; --line:#27304a; --txt:#e6e9f2;
+         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --best:#3ddc97; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
+       background:var(--bg);color:var(--txt);font-size:14px}
+  header{padding:18px 20px;border-bottom:1px solid var(--line);
+         display:flex;flex-wrap:wrap;gap:12px;align-items:baseline}
+  h1{font-size:18px;margin:0}
+  .updated{color:var(--muted);font-size:12px}
+  .controls{padding:14px 20px;display:flex;gap:10px;flex-wrap:wrap}
+  input,select{background:var(--card);color:var(--txt);border:1px solid var(--line);
+       border-radius:8px;padding:8px 10px;font-size:14px}
+  input{min-width:220px}
+  .wrap{padding:0 20px 40px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);
+        white-space:nowrap}
+  th{color:var(--muted);font-weight:600;font-size:12px;cursor:pointer;user-select:none}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.card-row:hover{background:#1c2236;cursor:pointer}
+  .pill{font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--line)}
+  .pill.cr{color:var(--cr)} .pill.hr{color:var(--hr)}
+  .best{color:var(--best);font-weight:700}
+  .muted{color:var(--muted)}
+  a{color:var(--cr);text-decoration:none} a:hover{text-decoration:underline}
+  .chart-row td{padding:0;background:#10142099}
+  .chart-box{height:240px;padding:14px 16px}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);padding:6px 16px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>TCG Tracker — Buying Prices</h1>
+  <span class="updated" id="updated"></span>
+</header>
+
+<div class="controls">
+  <input id="search" placeholder="Cerca carta o codice…" autocomplete="off">
+  <select id="setFilter"><option value="">Tutti i set</option></select>
+  <select id="sourceFilter">
+    <option value="">Migliore offerta</option>
+    <option value="cardrush">Solo CardRush</option>
+    <option value="hareruya">Solo Hareruya</option>
+  </select>
+</div>
+
+<div class="wrap">
+  <table id="tbl">
+    <thead><tr>
+      <th data-k="set_name">Set</th>
+      <th data-k="full_name">Carta</th>
+      <th data-k="card_code">Codice</th>
+      <th data-k="cardrush_price" class="num">CardRush</th>
+      <th data-k="hareruya_price" class="num">Hareruya</th>
+      <th data-k="best_price" class="num">Migliore</th>
+      <th data-k="best_source">Fonte</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="empty" hidden>Nessuna carta corrisponde ai filtri.</div>
+</div>
+
+<script>
+const YEN = n => (n==null||n===0) ? "—" : "¥" + Number(n).toLocaleString("ja-JP");
+let DATA = [], HIST = {}, sortKey = "set_name", sortDir = 1, openId = null, chart = null;
+
+async function load(){
+  const [b, h] = await Promise.all([
+    fetch("./data/buylist.json").then(r=>r.json()),
+    fetch("./data/history.json").then(r=>r.json()).catch(()=>({series:{}})),
+  ]);
+  DATA = b.rows || [];
+  HIST = h.series || {};
+  document.getElementById("updated").textContent =
+    "Ultimo aggiornamento: " + (b.generated_at || "—");
+  const sets = [...new Set(DATA.map(r=>r.set_name))];
+  const sel = document.getElementById("setFilter");
+  sets.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s; sel.appendChild(o); });
+  render();
+}
+
+function visibleRows(){
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const set = document.getElementById("setFilter").value;
+  let rows = DATA.filter(r=>{
+    if(set && r.set_name!==set) return false;
+    if(q && !((r.full_name||"").toLowerCase().includes(q) ||
+              (r.card_code||"").toLowerCase().includes(q))) return false;
+    return true;
+  });
+  rows.sort((a,b)=>{
+    let x=a[sortKey], y=b[sortKey];
+    if(typeof x==="number"||typeof y==="number"){ x=x||0; y=y||0; }
+    else { x=(x||"").toString().toLowerCase(); y=(y||"").toString().toLowerCase(); }
+    return x<y? -sortDir : x>y? sortDir : 0;
+  });
+  return rows;
+}
+
+function render(){
+  const tb = document.getElementById("rows");
+  const rows = visibleRows();
+  tb.innerHTML = "";
+  document.getElementById("empty").hidden = rows.length>0;
+  for(const r of rows){
+    const tr = document.createElement("tr");
+    tr.className = "card-row";
+    const crBest = r.best_source==="cardrush", hrBest = r.best_source==="hareruya";
+    tr.innerHTML = `
+      <td class="muted">${r.set_name}</td>
+      <td>${r.full_name||""}</td>
+      <td class="muted">${r.card_code||""}</td>
+      <td class="num ${crBest?'best':''}">${YEN(r.cardrush_price)}</td>
+      <td class="num ${hrBest?'best':''}">${YEN(r.hareruya_price)}</td>
+      <td class="num best">${YEN(r.best_price)}</td>
+      <td>${r.best_source?`<span class="pill ${r.best_source==='cardrush'?'cr':'hr'}">${r.best_source}</span>`:'<span class="muted">—</span>'}</td>`;
+    tr.onclick = ()=>toggle(r.card_id, tr);
+    tb.appendChild(tr);
+  }
+}
+
+function toggle(cardId, tr){
+  // chiudi eventuale riga grafico aperta
+  document.querySelectorAll(".chart-row").forEach(el=>el.remove());
+  if(openId===cardId){ openId=null; return; }
+  openId = cardId;
+  const cr = document.createElement("tr");
+  cr.className = "chart-row";
+  cr.innerHTML = `<td colspan="7">
+    <div class="legend">
+      <span><span class="dot" style="background:var(--cr)"></span>CardRush</span>
+      <span><span class="dot" style="background:var(--hr)"></span>Hareruya</span>
+    </div>
+    <div class="chart-box"><canvas></canvas></div></td>`;
+  tr.after(cr);
+  drawChart(cr.querySelector("canvas"), cardId);
+}
+
+function drawChart(canvas, cardId){
+  const s = HIST[String(cardId)] || {};
+  const days = [...new Set([...(s.cardrush||[]),...(s.hareruya||[])].map(p=>p[0]))].sort();
+  const map = arr => { const m=Object.fromEntries((arr||[]).map(p=>[p[0],p[1]])); return days.map(d=>m[d] ?? null); };
+  if(chart) chart.destroy();
+  chart = new Chart(canvas, {
+    type:"line",
+    data:{ labels:days, datasets:[
+      {label:"CardRush", data:map(s.cardrush), borderColor:"#5aa9ff", spanGaps:true, tension:.25, pointRadius:3},
+      {label:"Hareruya", data:map(s.hareruya), borderColor:"#ff8a5a", spanGaps:true, tension:.25, pointRadius:3},
+    ]},
+    options:{ maintainAspectRatio:false, plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${YEN(c.parsed.y)}`}}},
+      scales:{ x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
+               y:{ticks:{color:"#8b94ad",callback:v=>"¥"+v.toLocaleString("ja-JP")},grid:{color:"#27304a"}}}}
+  });
+}
+
+document.getElementById("search").oninput = render;
+document.getElementById("setFilter").onchange = render;
+document.querySelectorAll("th[data-k]").forEach(th=>{
+  th.onclick = ()=>{ const k=th.dataset.k; sortDir = (sortKey===k)? -sortDir : 1; sortKey=k; render(); };
+});
+load();
+</script>
+</body>
+</html>
