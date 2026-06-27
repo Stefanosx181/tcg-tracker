@@ -54,6 +54,7 @@ SELECT s.display_order set_order, s.pack_code, s.set_name,
        c.id card_id, c.card_code, c.model_number, c.full_name, c.rarity,
        cr.buying_price cardrush_price, cr.price_with_commission cardrush_price_comm,
        hr.buying_price hareruya_price, hr.price_with_commission hareruya_price_comm,
+       cr.in_stock cardrush_stock, hr.in_stock hareruya_stock,
        MAX(COALESCE(cr.buying_price,0), COALESCE(hr.buying_price,0)) best_price,
        CASE WHEN COALESCE(cr.buying_price,0)=0 AND COALESCE(hr.buying_price,0)=0 THEN NULL
             WHEN COALESCE(cr.buying_price,0)>=COALESCE(hr.buying_price,0) THEN 'cardrush'

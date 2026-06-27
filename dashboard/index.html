@@ -49,6 +49,10 @@
   td.pct .bar.cr{background:rgba(90,169,255,.20)} td.pct .bar.hr{background:rgba(255,138,90,.20)}
   td.pct span{position:relative;z-index:1}
   .muted{color:var(--muted)}
+  td.stale{font-style:italic;color:#d9b36b}
+  .mk{margin-left:1px;color:#d9b36b;font-style:normal;cursor:help}
+  .note{color:var(--muted);font-size:11px;margin-top:4px}
+  .note .mk{margin:0 3px 0 0}
   .chart-row td{padding:0;background:#10142099}
   .chart-box{height:230px;padding:12px 16px}
   .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);padding:6px 16px}
@@ -61,6 +65,7 @@
   <h1>TCG Tracker — Buying Prices</h1>
   <span class="updated" id="updated"></span>
   <span class="grand" id="grand"></span>
+  <div class="note"><span class="mk">*</span>prezzo riportato dall'ultimo valore noto (manuale o non confermato nell'ultimo aggiornamento)</div>
 </header>
 
 <div class="controls">
@@ -134,6 +139,13 @@ function buildSets(){
 
 function imgSrc(c){ return `images/${c.pack_code}_${c.model_number}.webp`; }
 
+// cella prezzo: se stock===0 il prezzo e' "riportato" (manuale/non confermato) -> stile + marker *
+function priceCell(val, stock){
+  if(val==null||val===0) return `<td class="num">—</td>`;
+  if(stock===0) return `<td class="num stale" title="Prezzo riportato dall'ultimo valore noto: non confermato nell'ultimo aggiornamento">${YEN(val)}<span class="mk">*</span></td>`;
+  return `<td class="num">${YEN(val)}</td>`;
+}
+
 function render(){
   const tb=document.getElementById("rows"); tb.innerHTML="";
   const query=qval(), sf=setFilter();
@@ -163,9 +175,9 @@ function render(){
         `<td class="img"><img class="thumb" loading="lazy" src="${imgSrc(c)}" alt="" onerror="this.style.visibility='hidden'"></td>
          <td title="${esc(c.full_name)}">${esc(c.full_name)}${rar}</td>
          <td class="muted">${esc(c.card_code)}</td>
-         <td class="num">${YEN(c.cardrush_price)}</td>
+         ${priceCell(c.cardrush_price, c.cardrush_stock)}
          <td class="num pct">${barCR}<span>${PCT(c._wCR)}</span></td>
-         <td class="num">${YEN(c.hareruya_price)}</td>
+         ${priceCell(c.hareruya_price, c.hareruya_stock)}
          <td class="num pct">${barHR}<span>${PCT(c._wHR)}</span></td>`;
       tr.onclick=()=>toggle(c.card_id,tr);
       tb.appendChild(tr);
