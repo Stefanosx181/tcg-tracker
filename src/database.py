@@ -30,8 +30,31 @@ def fetch_cards(conn):
     return cur.fetchall()
 
 
+def _last_known_price(conn, card_id, source):
+    """Ultimo buying_price NON nullo registrato per questa carta+fonte (o None)."""
+    ph = "?" if isinstance(conn, sqlite3.Connection) else "%s"
+    row = conn.cursor().execute(
+        f"""SELECT buying_price FROM tcg_price
+            WHERE card_id={ph} AND source={ph} AND buying_price IS NOT NULL
+            ORDER BY scraped_at DESC, id DESC LIMIT 1""",
+        (card_id, source)).fetchone()
+    return row[0] if row else None
+
+
 def save_price(conn, card_id, source, buying_price, in_stock=True):
-    """Inserisce un record di prezzo (storico). commission = prezzo * 1.10."""
+    """Inserisce un record di prezzo (storico). commission = prezzo * 1.10.
+
+    Carry-forward: se la carta NON e' stata trovata (buying_price None) si
+    riporta l'ULTIMO prezzo noto per quella carta+fonte. Cosi' il prezzo resta
+    l'ultimo valido finche' il sito non rintraccia la carta. Questi record
+    riportati sono marcati in_stock=0 (prezzo non confermato in questa passata).
+    Se non esiste alcun prezzo precedente, resta None.
+    """
+    if buying_price is None:
+        carried = _last_known_price(conn, card_id, source)
+        if carried is not None:
+            buying_price = carried
+            in_stock = False
     comm = round(buying_price * 1.10, 2) if buying_price is not None else None
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     placeholder = "?" if isinstance(conn, sqlite3.Connection) else "%s"
