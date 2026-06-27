@@ -7,102 +7,130 @@
 <title>TCG Tracker — Buying Prices</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
-  :root{ --bg:#0f1320; --card:#171c2e; --line:#27304a; --txt:#e6e9f2;
-         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --head:#202840; }
+  :root{ --bg:#0f1320; --card:#161b2c; --card2:#1b2236; --line:#27304a; --txt:#e6e9f2;
+         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --best:#3ddc97; --stale:#d9b36b; }
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
        background:var(--bg);color:var(--txt);font-size:14px}
-  header{padding:16px 20px;border-bottom:1px solid var(--line)}
-  h1{font-size:18px;margin:0 0 4px}
-  .updated{color:var(--muted);font-size:12px;margin-right:14px}
-  .grand{color:var(--txt);font-size:13px}
+
+  header{padding:16px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;
+         background:rgba(15,19,32,.95);backdrop-filter:blur(6px);z-index:30}
+  .topline{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  h1{font-size:18px;margin:0}
+  .updated{color:var(--muted);font-size:12px}
+  .grand{font-size:13px;margin-left:auto}
   .grand b{color:var(--cr)} .grand .hr{color:var(--hr)}
-  .controls{padding:12px 20px;display:flex;gap:10px;flex-wrap:wrap}
+  .note{color:var(--muted);font-size:11px;margin-top:6px}
+  .mk{color:var(--stale);cursor:help}
+
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
   input,select,button{background:var(--card);color:var(--txt);border:1px solid var(--line);
-       border-radius:8px;padding:8px 10px;font-size:14px}
-  input{min-width:220px}
+       border-radius:9px;padding:9px 11px;font-size:14px}
+  input{min-width:240px}
   button#refreshBtn{cursor:pointer;background:#1d3a5f;border-color:#2c5a8f;color:#cfe4ff}
   button#refreshBtn:hover:not(:disabled){background:#234a78}
   button#refreshBtn:disabled{opacity:.6;cursor:default}
-  #refreshMsg{align-self:center;font-size:12px}
-  .wrap{padding:0 20px 50px}
-  table{width:100%;border-collapse:collapse;table-layout:fixed}
-  col.c-img{width:54px} col.c-name{width:auto} col.c-code{width:108px}
-  col.c-price{width:108px} col.c-pct{width:84px}
-  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);
-        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  thead th{color:var(--muted);font-weight:600;font-size:12px;position:sticky;top:0;
-           background:var(--bg);z-index:2}
-  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-  .cr-col{color:var(--cr)} .hr-col{color:var(--hr)}
-  td.img{padding:3px 6px}
-  img.thumb{width:42px;height:42px;object-fit:contain;border-radius:4px;background:#0a0d16;display:block}
-  tr.set-header td{background:var(--head);font-size:14px;cursor:pointer;
-                   border-top:2px solid var(--line);border-bottom:1px solid var(--line)}
-  tr.set-header .total{font-weight:700}
-  tr.set-header .total.cr{color:var(--cr)} tr.set-header .total.hr{color:var(--hr)}
-  tr.card-row:hover{background:#1c2236;cursor:pointer}
-  .rar{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--line);
-       color:var(--muted);margin-left:8px;vertical-align:middle}
-  td.pct{position:relative}
-  td.pct .bar{position:absolute;left:0;top:3px;bottom:3px;border-radius:3px;z-index:0}
-  td.pct .bar.cr{background:rgba(90,169,255,.20)} td.pct .bar.hr{background:rgba(255,138,90,.20)}
-  td.pct span{position:relative;z-index:1}
-  .muted{color:var(--muted)}
-  td.stale{font-style:italic;color:#d9b36b}
-  .mk{margin-left:1px;color:#d9b36b;font-style:normal;cursor:help}
-  .note{color:var(--muted);font-size:11px;margin-top:4px}
-  .note .mk{margin:0 3px 0 0}
-  .chart-row td{padding:0;background:#10142099}
-  .chart-box{height:230px;padding:12px 16px}
-  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);padding:6px 16px}
+  #refreshMsg{align-self:center;font-size:12px;color:var(--muted)}
+
+  .wrap{padding:8px 22px 60px;max-width:1500px;margin:0 auto}
+
+  /* intestazione set */
+  .set-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+            margin:26px 0 12px;padding:12px 16px;background:var(--card2);
+            border:1px solid var(--line);border-radius:12px;cursor:pointer}
+  .set-head h2{font-size:16px;margin:0}
+  .set-head .count{color:var(--muted);font-size:12px}
+  .set-tot{margin-left:auto;display:flex;gap:22px;font-size:13px;font-variant-numeric:tabular-nums}
+  .set-tot .lbl{color:var(--muted);font-size:11px;display:block}
+  .set-tot .cr{color:var(--cr);font-weight:700} .set-tot .hr{color:var(--hr);font-weight:700}
+  .caret{color:var(--muted);font-size:13px;width:14px}
+
+  /* griglia card */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(186px,1fr));gap:14px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        overflow:hidden;cursor:pointer;transition:transform .08s,border-color .08s;display:flex;flex-direction:column}
+  .tile:hover{transform:translateY(-2px);border-color:#3a4a6e}
+  .tile .imgbox{background:#0a0d16;display:flex;align-items:center;justify-content:center;
+                padding:10px;aspect-ratio:3/4}
+  .tile img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+  .tile .body{padding:10px 12px 12px}
+  .tile .nm{font-size:13px;line-height:1.25;height:2.5em;overflow:hidden;
+            display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .tile .meta{display:flex;align-items:center;gap:8px;margin:6px 0 9px}
+  .tile .code{color:var(--muted);font-size:11px}
+  .rar{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .prices{display:grid;grid-template-columns:1fr;gap:6px}
+  .prow{display:flex;align-items:center;gap:7px;font-size:13px;font-variant-numeric:tabular-nums}
+  .prow .tag{font-size:10px;font-weight:700;width:24px}
+  .prow .tag.cr{color:var(--cr)} .prow .tag.hr{color:var(--hr)}
+  .prow .val{font-weight:600}
+  .prow .w{color:var(--muted);font-size:11px;margin-left:auto}
+  .prow.stale .val{font-style:italic;color:var(--stale)}
+  .bar{height:4px;border-radius:3px;background:#0a0d16;overflow:hidden;margin-top:3px}
+  .bar i{display:block;height:100%}
+  .bar i.cr{background:var(--cr)} .bar i.hr{background:var(--hr)}
+  .empty{padding:50px;text-align:center;color:var(--muted)}
+
+  /* modal grafico */
+  .modal{position:fixed;inset:0;background:rgba(5,8,15,.78);display:none;
+         align-items:center;justify-content:center;z-index:50;padding:20px}
+  .modal.on{display:flex}
+  .sheet{background:var(--card);border:1px solid var(--line);border-radius:14px;
+         width:min(680px,96vw);max-height:92vh;overflow:auto;padding:18px}
+  .sheet .hd{display:flex;gap:14px;align-items:center;margin-bottom:12px}
+  .sheet .hd img{width:64px;height:88px;object-fit:contain;background:#0a0d16;border-radius:6px}
+  .sheet .hd h3{margin:0 0 3px;font-size:15px}
+  .sheet .hd .sub{color:var(--muted);font-size:12px}
+  .sheet .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:22px;line-height:1;border:none;background:none}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:2px 0 8px}
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
-  .empty{padding:40px;text-align:center;color:var(--muted)}
+  .chart-box{height:260px}
 </style>
 </head>
 <body>
 <header>
-  <h1>TCG Tracker — Buying Prices</h1>
-  <span class="updated" id="updated"></span>
-  <span class="grand" id="grand"></span>
-  <div class="note"><span class="mk">*</span>prezzo riportato dall'ultimo valore noto (manuale o non confermato nell'ultimo aggiornamento)</div>
+  <div class="topline">
+    <h1>TCG Tracker</h1>
+    <span class="updated" id="updated"></span>
+    <span class="grand" id="grand"></span>
+  </div>
+  <div class="note"><span class="mk">*</span> prezzo riportato dall'ultimo valore noto (manuale o non confermato nell'ultimo aggiornamento)</div>
+  <div class="controls">
+    <input id="search" placeholder="Cerca carta o codice…" autocomplete="off">
+    <select id="setFilter"><option value="">Tutti i set</option></select>
+    <button id="refreshBtn" title="Avvia subito lo scraping dei prezzi">↻ Aggiorna ora</button>
+    <span id="refreshMsg"></span>
+  </div>
 </header>
 
-<div class="controls">
-  <input id="search" placeholder="Cerca carta o codice…" autocomplete="off">
-  <select id="setFilter"><option value="">Tutti i set</option></select>
-  <button id="refreshBtn" title="Avvia subito lo scraping dei prezzi">↻ Aggiorna ora</button>
-  <span id="refreshMsg" class="muted"></span>
+<div class="wrap">
+  <div id="sets"></div>
+  <div class="empty" id="empty" hidden>Nessuna carta corrisponde ai filtri.</div>
 </div>
 
-<div class="wrap">
-  <table id="tbl">
-    <colgroup>
-      <col class="c-img"><col class="c-name"><col class="c-code">
-      <col class="c-price"><col class="c-pct">
-      <col class="c-price"><col class="c-pct">
-    </colgroup>
-    <thead><tr>
-      <th></th>
-      <th>Carta</th>
-      <th>Codice</th>
-      <th class="num cr-col">CardRush</th>
-      <th class="num cr-col">Peso</th>
-      <th class="num hr-col">Hareruya</th>
-      <th class="num hr-col">Peso</th>
-    </tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
-  <div class="empty" id="empty" hidden>Nessuna carta corrisponde ai filtri.</div>
+<div class="modal" id="modal">
+  <div class="sheet">
+    <div class="hd">
+      <img id="mImg" alt="">
+      <div><h3 id="mName"></h3><div class="sub" id="mSub"></div></div>
+      <button class="x" id="mClose">×</button>
+    </div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--cr)"></span>CardRush</span>
+      <span><span class="dot" style="background:var(--hr)"></span>Hareruya</span>
+    </div>
+    <div class="chart-box"><canvas id="mCanvas"></canvas></div>
+  </div>
 </div>
 
 <script>
 const YEN = n => (n==null||n===0) ? "—" : "¥" + Number(n).toLocaleString("ja-JP");
 const PCT = n => (n==null) ? "—" : n.toFixed(1) + "%";
 const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
-let DATA=[], HIST={}, SETS=[], collapsed=new Set(), openId=null, chart=null;
+let DATA=[], HIST={}, SETS=[], collapsed=new Set(), chart=null;
 const qval = ()=>document.getElementById("search").value.trim().toLowerCase();
 const setFilter = ()=>document.getElementById("setFilter").value;
+const imgSrc = c => `images/${c.pack_code}_${c.model_number}.webp`;
 
 async function load(){
   const [b,h] = await Promise.all([
@@ -116,7 +144,7 @@ async function load(){
   SETS.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s.name; sel.appendChild(o); });
   const gcr=SETS.reduce((a,s)=>a+s.totalCR,0), ghr=SETS.reduce((a,s)=>a+s.totalHR,0);
   document.getElementById("grand").innerHTML =
-    `Totale generale — CardRush <b>${YEN(gcr)}</b> · Hareruya <span class="hr">${YEN(ghr)}</span>`;
+    `Totale — CardRush <b>${YEN(gcr)}</b> · Hareruya <span class="hr">${YEN(ghr)}</span>`;
   render();
 }
 
@@ -137,17 +165,17 @@ function buildSets(){
   }
 }
 
-function imgSrc(c){ return `images/${c.pack_code}_${c.model_number}.webp`; }
-
-// cella prezzo: se stock===0 il prezzo e' "riportato" (manuale/non confermato) -> stile + marker *
-function priceCell(val, stock){
-  if(val==null||val===0) return `<td class="num">—</td>`;
-  if(stock===0) return `<td class="num stale" title="Prezzo riportato dall'ultimo valore noto: non confermato nell'ultimo aggiornamento">${YEN(val)}<span class="mk">*</span></td>`;
-  return `<td class="num">${YEN(val)}</td>`;
+function priceRow(tag, cls, val, stock, weight){
+  const stale = stock===0 && val;
+  const v = (val==null||val===0) ? '<span class="val">—</span>'
+          : `<span class="val">${YEN(val)}${stale?'<span class="mk" title="Prezzo riportato/non confermato">&nbsp;*</span>':''}</span>`;
+  const w = weight==null ? '' : `<span class="w">${PCT(weight)}</span>`;
+  const bar = weight==null ? '' : `<div class="bar"><i class="${cls}" style="width:${Math.min(weight,100)}%"></i></div>`;
+  return `<div><div class="prow ${stale?'stale':''}"><span class="tag ${cls}">${tag}</span>${v}${w}</div>${bar}</div>`;
 }
 
 function render(){
-  const tb=document.getElementById("rows"); tb.innerHTML="";
+  const cont=document.getElementById("sets"); cont.innerHTML="";
   const query=qval(), sf=setFilter();
   let shown=0;
   for(const s of SETS){
@@ -158,48 +186,50 @@ function render(){
     if(!cards.length) continue;
     shown++;
     const isCol = collapsed.has(s.name);
-    const hr=document.createElement("tr"); hr.className="set-header";
-    hr.innerHTML =
-      `<td colspan="3">${isCol?'▸':'▾'} <b>${esc(s.name)}</b> <span class="muted">· ${s.cards.length} carte</span></td>
-       <td class="num total cr">${YEN(s.totalCR)}</td><td class="num muted">100%</td>
-       <td class="num total hr">${YEN(s.totalHR)}</td><td class="num muted">100%</td>`;
-    hr.onclick=()=>{ collapsed.has(s.name)?collapsed.delete(s.name):collapsed.add(s.name); render(); };
-    tb.appendChild(hr);
+
+    const head=document.createElement("div"); head.className="set-head";
+    head.innerHTML =
+      `<span class="caret">${isCol?'▸':'▾'}</span>
+       <h2>${esc(s.name)}</h2><span class="count">${s.cards.length} carte</span>
+       <div class="set-tot">
+         <div><span class="lbl">CardRush</span><span class="cr">${YEN(s.totalCR)}</span></div>
+         <div><span class="lbl">Hareruya</span><span class="hr">${YEN(s.totalHR)}</span></div>
+       </div>`;
+    head.onclick=()=>{ collapsed.has(s.name)?collapsed.delete(s.name):collapsed.add(s.name); render(); };
+    cont.appendChild(head);
     if(isCol) continue;
+
+    const grid=document.createElement("div"); grid.className="grid";
     for(const c of cards){
-      const tr=document.createElement("tr"); tr.className="card-row";
-      const barCR = c._wCR? `<div class="bar cr" style="width:${Math.min(c._wCR,100)}%"></div>`:"";
-      const barHR = c._wHR? `<div class="bar hr" style="width:${Math.min(c._wHR,100)}%"></div>`:"";
-      const rar = c.rarity? `<span class="rar">${esc(c.rarity)}</span>`:"";
-      tr.innerHTML =
-        `<td class="img"><img class="thumb" loading="lazy" src="${imgSrc(c)}" alt="" onerror="this.style.visibility='hidden'"></td>
-         <td title="${esc(c.full_name)}">${esc(c.full_name)}${rar}</td>
-         <td class="muted">${esc(c.card_code)}</td>
-         ${priceCell(c.cardrush_price, c.cardrush_stock)}
-         <td class="num pct">${barCR}<span>${PCT(c._wCR)}</span></td>
-         ${priceCell(c.hareruya_price, c.hareruya_stock)}
-         <td class="num pct">${barHR}<span>${PCT(c._wHR)}</span></td>`;
-      tr.onclick=()=>toggle(c.card_id,tr);
-      tb.appendChild(tr);
+      const tile=document.createElement("div"); tile.className="tile";
+      tile.innerHTML =
+        `<div class="imgbox"><img loading="lazy" src="${imgSrc(c)}" alt="" onerror="this.style.visibility='hidden'"></div>
+         <div class="body">
+           <div class="nm" title="${esc(c.full_name)}">${esc(c.full_name)}</div>
+           <div class="meta"><span class="code">${esc(c.card_code)}</span>${c.rarity?`<span class="rar">${esc(c.rarity)}</span>`:''}</div>
+           <div class="prices">
+             ${priceRow('CR','cr',c.cardrush_price,c.cardrush_stock,c._wCR)}
+             ${priceRow('HR','hr',c.hareruya_price,c.hareruya_stock,c._wHR)}
+           </div>
+         </div>`;
+      tile.onclick=()=>openChart(c);
+      grid.appendChild(tile);
     }
+    cont.appendChild(grid);
   }
   document.getElementById("empty").hidden = shown>0;
 }
 
-function toggle(cardId, tr){
-  document.querySelectorAll(".chart-row").forEach(el=>el.remove());
-  if(openId===cardId){ openId=null; return; }
-  openId=cardId;
-  const cr=document.createElement("tr"); cr.className="chart-row";
-  cr.innerHTML=`<td colspan="7">
-    <div class="legend">
-      <span><span class="dot" style="background:var(--cr)"></span>CardRush</span>
-      <span><span class="dot" style="background:var(--hr)"></span>Hareruya</span>
-    </div>
-    <div class="chart-box"><canvas></canvas></div></td>`;
-  tr.after(cr);
-  drawChart(cr.querySelector("canvas"), cardId);
+function openChart(c){
+  document.getElementById("mImg").src = imgSrc(c);
+  document.getElementById("mName").textContent = c.full_name||c.card_code;
+  document.getElementById("mSub").textContent = `${c.card_code}${c.rarity?' · '+c.rarity:''}`;
+  document.getElementById("modal").classList.add("on");
+  drawChart(document.getElementById("mCanvas"), c.card_id);
 }
+function closeModal(){ document.getElementById("modal").classList.remove("on"); if(chart){chart.destroy();chart=null;} }
+document.getElementById("mClose").onclick = closeModal;
+document.getElementById("modal").onclick = e=>{ if(e.target.id==="modal") closeModal(); };
 
 function drawChart(canvas, cardId){
   const s=HIST[String(cardId)]||{};
@@ -220,26 +250,17 @@ function drawChart(canvas, cardId){
 
 document.getElementById("search").oninput = render;
 document.getElementById("setFilter").onchange = render;
-
-// bottone "Aggiorna ora": avvia il workflow GitHub via /api/trigger del Worker
 document.getElementById("refreshBtn").onclick = async (e)=>{
   const btn=e.currentTarget, msg=document.getElementById("refreshMsg");
   btn.disabled=true; msg.textContent="Avvio in corso…";
   try{
     const r=await fetch("/api/trigger",{method:"POST"});
     const j=await r.json().catch(()=>({}));
-    if(r.ok && j.ok){
-      msg.textContent="✓ Aggiornamento avviato — i prezzi compariranno tra ~7-8 minuti (ricarica la pagina più tardi).";
-    }else{
-      msg.textContent="✗ "+(j.error||("Errore "+r.status));
-      btn.disabled=false;
-    }
-  }catch(err){
-    msg.textContent="✗ Errore di rete";
-    btn.disabled=false;
-  }
+    if(r.ok && j.ok){ msg.textContent="✓ Avviato — i prezzi compariranno tra ~7-8 minuti (ricarica più tardi)."; }
+    else{ msg.textContent="✗ "+(j.error||("Errore "+r.status)); btn.disabled=false; }
+  }catch(err){ msg.textContent="✗ Errore di rete"; btn.disabled=false; }
 };
-
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });
 load();
 </script>
 </body>
