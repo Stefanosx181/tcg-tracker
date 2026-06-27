@@ -22,6 +22,9 @@
   .grand{font-size:13px;margin-left:auto}
   .grand b{color:var(--cr)} .grand .hr{color:var(--hr)}
   .note{color:var(--muted);font-size:11px;margin-top:6px}
+  .logout{color:var(--muted);font-size:12px;text-decoration:none;border:1px solid var(--line);
+          padding:4px 10px;border-radius:8px}
+  .logout:hover{color:var(--txt);border-color:#3a4a6e}
   .mk{color:var(--stale);cursor:help}
 
   .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
@@ -129,6 +132,7 @@
     <h1>TCG Tracker</h1>
     <span class="updated" id="updated"></span>
     <span class="grand" id="grand"></span>
+    <a href="/logout" class="logout" title="Esci">Esci</a>
   </div>
   <div class="note"><span class="mk">*</span> prezzo riportato dall'ultimo valore noto (manuale o non confermato nell'ultimo aggiornamento)</div>
   <div class="controls">
