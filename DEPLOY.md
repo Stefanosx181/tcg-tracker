@@ -95,3 +95,26 @@ git -C C:\percorso\tcg_tracker commit -m "update prezzi" && git -C C:\percorso\t
 Cloudflare ridistribuisce comunque la pagina ad ogni push. In questo caso togli il
 blocco `schedule:` dal workflow (o lascialo: non fa danni, semplicemente non trova
 nuovi prezzi).
+
+## Attivare il bottone "Aggiorna ora" (scraping on-demand)
+
+La dashboard ha un bottone che avvia subito il workflow senza aspettare il lunedì.
+Tecnicamente il bottone chiama `POST /api/trigger` sul Worker, che lancia il
+workflow GitHub usando un token salvato come secret. Per attivarlo, una volta sola:
+
+**1. Crea un token GitHub (fine-grained)**
+- GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token
+- Resource owner: il tuo account · Repository access: Only select repositories → `tcg-tracker`
+- Permissions → Repository permissions → **Actions: Read and write**
+- Generate token → copialo (visibile una volta sola)
+
+**2. Salvalo come secret su Cloudflare**
+- Cloudflare → Workers & Pages → `tcg-tracker` → Settings → Variables and Secrets
+- Add → tipo **Secret** → Name `GH_TOKEN` → Value = il token → Save
+
+Finché il secret non è impostato, il bottone risponde "Token non configurato".
+Il token vive solo nel secret store di Cloudflare: non è mai nella pagina né nel repo.
+
+> Nota: l'endpoint `/api/trigger` è raggiungibile da chi conosce l'URL (nascosto).
+> Avviare uno scraping è un'azione a basso rischio; se vuoi proteggerlo di più si può
+> aggiungere un controllo o Cloudflare Access.
