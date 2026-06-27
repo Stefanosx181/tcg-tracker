@@ -11,7 +11,8 @@
          --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --best:#3ddc97; --stale:#d9b36b; }
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
-       background:var(--bg);color:var(--txt);font-size:14px}
+       background:var(--bg);color:var(--txt);font-size:14px;
+       -webkit-text-size-adjust:100%;text-size-adjust:100%}
 
   header{padding:16px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;
          background:rgba(15,19,32,.95);backdrop-filter:blur(6px);z-index:30}
@@ -85,6 +86,41 @@
   .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:2px 0 8px}
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
   .chart-box{height:260px}
+
+  /* ---------- RESPONSIVE ---------- */
+  /* tablet */
+  @media (max-width: 900px){
+    .wrap{padding:6px 14px 50px}
+    .grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+  }
+  /* mobile */
+  @media (max-width: 640px){
+    header{padding:12px 14px}
+    h1{font-size:16px}
+    .topline{gap:10px}
+    .grand{margin-left:0;flex-basis:100%}
+    .controls{gap:8px}
+    .controls input{flex:1 1 100%;min-width:0}
+    .controls select{flex:1 1 46%}
+    #refreshBtn{flex:1 1 46%}
+    #refreshMsg{flex-basis:100%}
+    .wrap{padding:4px 12px 50px}
+    .grid{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
+    .set-head{margin:16px 0 10px;padding:10px 12px}
+    .set-head h2{font-size:15px}
+    .set-tot{margin-left:0;flex-basis:100%;gap:20px}
+    .tile .nm{font-size:12px}
+    .prow{font-size:12px}
+    .modal{padding:10px}
+    .sheet{width:100%;padding:14px}
+    .chart-box{height:240px}
+  }
+  /* telefoni stretti: 2 colonne garantite */
+  @media (max-width: 380px){
+    .grid{grid-template-columns:repeat(2,1fr);gap:8px}
+    .tile .body{padding:8px 9px 10px}
+    .tile .imgbox{padding:7px}
+  }
 </style>
 </head>
 <body>
