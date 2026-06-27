@@ -23,6 +23,7 @@ CREATE TABLE tcg_card (
   card_code     TEXT    NOT NULL,
   model_number  TEXT,
   full_name     TEXT,
+  rarity        TEXT,
   cardrush_url  TEXT,
   hareruya_url  TEXT,
   row_index     INTEGER,
@@ -50,7 +51,7 @@ JOIN ( SELECT card_id, source, MAX(scraped_at) mx
 
 CREATE VIEW v_buylist AS
 SELECT s.display_order set_order, s.pack_code, s.set_name,
-       c.id card_id, c.card_code, c.model_number, c.full_name,
+       c.id card_id, c.card_code, c.model_number, c.full_name, c.rarity,
        cr.buying_price cardrush_price, cr.price_with_commission cardrush_price_comm,
        hr.buying_price hareruya_price, hr.price_with_commission hareruya_price_comm,
        MAX(COALESCE(cr.buying_price,0), COALESCE(hr.buying_price,0)) best_price,
