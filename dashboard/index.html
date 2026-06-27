@@ -8,32 +8,44 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   :root{ --bg:#0f1320; --card:#171c2e; --line:#27304a; --txt:#e6e9f2;
-         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --best:#3ddc97; }
+         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --head:#202840; }
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
        background:var(--bg);color:var(--txt);font-size:14px}
-  header{padding:18px 20px;border-bottom:1px solid var(--line);
-         display:flex;flex-wrap:wrap;gap:12px;align-items:baseline}
-  h1{font-size:18px;margin:0}
-  .updated{color:var(--muted);font-size:12px}
-  .controls{padding:14px 20px;display:flex;gap:10px;flex-wrap:wrap}
+  header{padding:16px 20px;border-bottom:1px solid var(--line)}
+  h1{font-size:18px;margin:0 0 4px}
+  .updated{color:var(--muted);font-size:12px;margin-right:14px}
+  .grand{color:var(--txt);font-size:13px}
+  .grand b{color:var(--cr)} .grand .hr{color:var(--hr)}
+  .controls{padding:12px 20px;display:flex;gap:10px;flex-wrap:wrap}
   input,select{background:var(--card);color:var(--txt);border:1px solid var(--line);
        border-radius:8px;padding:8px 10px;font-size:14px}
   input{min-width:220px}
-  .wrap{padding:0 20px 40px}
-  table{width:100%;border-collapse:collapse}
-  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);
-        white-space:nowrap}
-  th{color:var(--muted);font-weight:600;font-size:12px;cursor:pointer;user-select:none}
-  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .wrap{padding:0 20px 50px}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  col.c-name{width:auto} col.c-code{width:120px}
+  col.c-price{width:120px} col.c-pct{width:96px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  thead th{color:var(--muted);font-weight:600;font-size:12px;position:sticky;top:0;
+           background:var(--bg);z-index:2}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .cr-col{color:var(--cr)} .hr-col{color:var(--hr)}
+  /* riga intestazione SET */
+  tr.set-header td{background:var(--head);font-size:14px;cursor:pointer;
+                   border-top:2px solid var(--line);border-bottom:1px solid var(--line)}
+  tr.set-header .total{font-weight:700}
+  tr.set-header .total.cr{color:var(--cr)} tr.set-header .total.hr{color:var(--hr)}
+  /* righe carta */
   tr.card-row:hover{background:#1c2236;cursor:pointer}
-  .pill{font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--line)}
-  .pill.cr{color:var(--cr)} .pill.hr{color:var(--hr)}
-  .best{color:var(--best);font-weight:700}
+  td.pct{position:relative}
+  td.pct .bar{position:absolute;left:0;top:3px;bottom:3px;border-radius:3px;z-index:0}
+  td.pct .bar.cr{background:rgba(90,169,255,.20)} td.pct .bar.hr{background:rgba(255,138,90,.20)}
+  td.pct span{position:relative;z-index:1}
   .muted{color:var(--muted)}
-  a{color:var(--cr);text-decoration:none} a:hover{text-decoration:underline}
+  /* grafico storico */
   .chart-row td{padding:0;background:#10142099}
-  .chart-box{height:240px;padding:14px 16px}
+  .chart-box{height:230px;padding:12px 16px}
   .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);padding:6px 16px}
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
   .empty{padding:40px;text-align:center;color:var(--muted)}
@@ -43,28 +55,28 @@
 <header>
   <h1>TCG Tracker — Buying Prices</h1>
   <span class="updated" id="updated"></span>
+  <span class="grand" id="grand"></span>
 </header>
 
 <div class="controls">
   <input id="search" placeholder="Cerca carta o codice…" autocomplete="off">
   <select id="setFilter"><option value="">Tutti i set</option></select>
-  <select id="sourceFilter">
-    <option value="">Migliore offerta</option>
-    <option value="cardrush">Solo CardRush</option>
-    <option value="hareruya">Solo Hareruya</option>
-  </select>
 </div>
 
 <div class="wrap">
   <table id="tbl">
+    <colgroup>
+      <col class="c-name"><col class="c-code">
+      <col class="c-price"><col class="c-pct">
+      <col class="c-price"><col class="c-pct">
+    </colgroup>
     <thead><tr>
-      <th data-k="set_name">Set</th>
-      <th data-k="full_name">Carta</th>
-      <th data-k="card_code">Codice</th>
-      <th data-k="cardrush_price" class="num">CardRush</th>
-      <th data-k="hareruya_price" class="num">Hareruya</th>
-      <th data-k="best_price" class="num">Migliore</th>
-      <th data-k="best_source">Fonte</th>
+      <th>Carta</th>
+      <th>Codice</th>
+      <th class="num cr-col">CardRush</th>
+      <th class="num cr-col">Peso</th>
+      <th class="num hr-col">Hareruya</th>
+      <th class="num hr-col">Peso</th>
     </tr></thead>
     <tbody id="rows"></tbody>
   </table>
@@ -73,71 +85,89 @@
 
 <script>
 const YEN = n => (n==null||n===0) ? "—" : "¥" + Number(n).toLocaleString("ja-JP");
-let DATA = [], HIST = {}, sortKey = "set_name", sortDir = 1, openId = null, chart = null;
+const PCT = n => (n==null) ? "—" : n.toFixed(1) + "%";
+let DATA=[], HIST={}, SETS=[], collapsed=new Set(), openId=null, chart=null;
+const qval = ()=>document.getElementById("search").value.trim().toLowerCase();
+const setFilter = ()=>document.getElementById("setFilter").value;
 
 async function load(){
-  const [b, h] = await Promise.all([
+  const [b,h] = await Promise.all([
     fetch("./data/buylist.json").then(r=>r.json()),
     fetch("./data/history.json").then(r=>r.json()).catch(()=>({series:{}})),
   ]);
-  DATA = b.rows || [];
-  HIST = h.series || {};
-  document.getElementById("updated").textContent =
-    "Ultimo aggiornamento: " + (b.generated_at || "—");
-  const sets = [...new Set(DATA.map(r=>r.set_name))];
-  const sel = document.getElementById("setFilter");
-  sets.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s; sel.appendChild(o); });
+  DATA = b.rows||[]; HIST = h.series||{};
+  document.getElementById("updated").textContent = "Aggiornato: " + (b.generated_at||"—");
+  buildSets();
+  const sel=document.getElementById("setFilter");
+  SETS.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s.name; sel.appendChild(o); });
+  const gcr=SETS.reduce((a,s)=>a+s.totalCR,0), ghr=SETS.reduce((a,s)=>a+s.totalHR,0);
+  document.getElementById("grand").innerHTML =
+    `Totale generale — CardRush <b>${YEN(gcr)}</b> · Hareruya <span class="hr">${YEN(ghr)}</span>`;
   render();
 }
 
-function visibleRows(){
-  const q = document.getElementById("search").value.trim().toLowerCase();
-  const set = document.getElementById("setFilter").value;
-  let rows = DATA.filter(r=>{
-    if(set && r.set_name!==set) return false;
-    if(q && !((r.full_name||"").toLowerCase().includes(q) ||
-              (r.card_code||"").toLowerCase().includes(q))) return false;
-    return true;
-  });
-  rows.sort((a,b)=>{
-    let x=a[sortKey], y=b[sortKey];
-    if(typeof x==="number"||typeof y==="number"){ x=x||0; y=y||0; }
-    else { x=(x||"").toString().toLowerCase(); y=(y||"").toString().toLowerCase(); }
-    return x<y? -sortDir : x>y? sortDir : 0;
-  });
-  return rows;
-}
-
-function render(){
-  const tb = document.getElementById("rows");
-  const rows = visibleRows();
-  tb.innerHTML = "";
-  document.getElementById("empty").hidden = rows.length>0;
-  for(const r of rows){
-    const tr = document.createElement("tr");
-    tr.className = "card-row";
-    const crBest = r.best_source==="cardrush", hrBest = r.best_source==="hareruya";
-    tr.innerHTML = `
-      <td class="muted">${r.set_name}</td>
-      <td>${r.full_name||""}</td>
-      <td class="muted">${r.card_code||""}</td>
-      <td class="num ${crBest?'best':''}">${YEN(r.cardrush_price)}</td>
-      <td class="num ${hrBest?'best':''}">${YEN(r.hareruya_price)}</td>
-      <td class="num best">${YEN(r.best_price)}</td>
-      <td>${r.best_source?`<span class="pill ${r.best_source==='cardrush'?'cr':'hr'}">${r.best_source}</span>`:'<span class="muted">—</span>'}</td>`;
-    tr.onclick = ()=>toggle(r.card_id, tr);
-    tb.appendChild(tr);
+// raggruppa per set + calcola totali e pesi (% della carta sul totale del set, per sito)
+function buildSets(){
+  const map=new Map();
+  for(const r of DATA){
+    if(!map.has(r.set_name)) map.set(r.set_name,{name:r.set_name,order:r.set_order,cards:[]});
+    map.get(r.set_name).cards.push(r);
+  }
+  SETS=[...map.values()].sort((a,b)=>(a.order-b.order)||a.name.localeCompare(b.name));
+  for(const s of SETS){
+    s.totalCR=s.cards.reduce((a,c)=>a+(c.cardrush_price||0),0);
+    s.totalHR=s.cards.reduce((a,c)=>a+(c.hareruya_price||0),0);
+    for(const c of s.cards){
+      c._wCR = (c.cardrush_price && s.totalCR) ? c.cardrush_price/s.totalCR*100 : null;
+      c._wHR = (c.hareruya_price && s.totalHR) ? c.hareruya_price/s.totalHR*100 : null;
+    }
   }
 }
 
+function render(){
+  const tb=document.getElementById("rows"); tb.innerHTML="";
+  const query=qval(), sf=setFilter();
+  let shown=0;
+  for(const s of SETS){
+    if(sf && s.name!==sf) continue;
+    const cards = s.cards.filter(c=> !query ||
+      (c.full_name||"").toLowerCase().includes(query) ||
+      (c.card_code||"").toLowerCase().includes(query));
+    if(!cards.length) continue;
+    shown++;
+    const isCol = collapsed.has(s.name);
+    const hr=document.createElement("tr"); hr.className="set-header";
+    hr.innerHTML =
+      `<td colspan="2">${isCol?'▸':'▾'} <b>${s.name}</b> <span class="muted">· ${s.cards.length} carte</span></td>
+       <td class="num total cr">${YEN(s.totalCR)}</td><td class="num muted">100%</td>
+       <td class="num total hr">${YEN(s.totalHR)}</td><td class="num muted">100%</td>`;
+    hr.onclick=()=>{ collapsed.has(s.name)?collapsed.delete(s.name):collapsed.add(s.name); render(); };
+    tb.appendChild(hr);
+    if(isCol) continue;
+    for(const c of cards){
+      const tr=document.createElement("tr"); tr.className="card-row";
+      const barCR = c._wCR? `<div class="bar cr" style="width:${Math.min(c._wCR,100)}%"></div>`:"";
+      const barHR = c._wHR? `<div class="bar hr" style="width:${Math.min(c._wHR,100)}%"></div>`:"";
+      tr.innerHTML =
+        `<td title="${(c.full_name||'').replace(/"/g,'&quot;')}">${c.full_name||""}</td>
+         <td class="muted">${c.card_code||""}</td>
+         <td class="num">${YEN(c.cardrush_price)}</td>
+         <td class="num pct">${barCR}<span>${PCT(c._wCR)}</span></td>
+         <td class="num">${YEN(c.hareruya_price)}</td>
+         <td class="num pct">${barHR}<span>${PCT(c._wHR)}</span></td>`;
+      tr.onclick=()=>toggle(c.card_id,tr);
+      tb.appendChild(tr);
+    }
+  }
+  document.getElementById("empty").hidden = shown>0;
+}
+
 function toggle(cardId, tr){
-  // chiudi eventuale riga grafico aperta
   document.querySelectorAll(".chart-row").forEach(el=>el.remove());
   if(openId===cardId){ openId=null; return; }
-  openId = cardId;
-  const cr = document.createElement("tr");
-  cr.className = "chart-row";
-  cr.innerHTML = `<td colspan="7">
+  openId=cardId;
+  const cr=document.createElement("tr"); cr.className="chart-row";
+  cr.innerHTML=`<td colspan="6">
     <div class="legend">
       <span><span class="dot" style="background:var(--cr)"></span>CardRush</span>
       <span><span class="dot" style="background:var(--hr)"></span>Hareruya</span>
@@ -148,28 +178,24 @@ function toggle(cardId, tr){
 }
 
 function drawChart(canvas, cardId){
-  const s = HIST[String(cardId)] || {};
-  const days = [...new Set([...(s.cardrush||[]),...(s.hareruya||[])].map(p=>p[0]))].sort();
-  const map = arr => { const m=Object.fromEntries((arr||[]).map(p=>[p[0],p[1]])); return days.map(d=>m[d] ?? null); };
+  const s=HIST[String(cardId)]||{};
+  const days=[...new Set([...(s.cardrush||[]),...(s.hareruya||[])].map(p=>p[0]))].sort();
+  const map=arr=>{const m=Object.fromEntries((arr||[]).map(p=>[p[0],p[1]]));return days.map(d=>m[d]??null);};
   if(chart) chart.destroy();
-  chart = new Chart(canvas, {
-    type:"line",
-    data:{ labels:days, datasets:[
-      {label:"CardRush", data:map(s.cardrush), borderColor:"#5aa9ff", spanGaps:true, tension:.25, pointRadius:3},
-      {label:"Hareruya", data:map(s.hareruya), borderColor:"#ff8a5a", spanGaps:true, tension:.25, pointRadius:3},
+  chart=new Chart(canvas,{type:"line",
+    data:{labels:days,datasets:[
+      {label:"CardRush",data:map(s.cardrush),borderColor:"#5aa9ff",spanGaps:true,tension:.25,pointRadius:3},
+      {label:"Hareruya",data:map(s.hareruya),borderColor:"#ff8a5a",spanGaps:true,tension:.25,pointRadius:3},
     ]},
-    options:{ maintainAspectRatio:false, plugins:{legend:{display:false},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:false},
       tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${YEN(c.parsed.y)}`}}},
-      scales:{ x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
-               y:{ticks:{color:"#8b94ad",callback:v=>"¥"+v.toLocaleString("ja-JP")},grid:{color:"#27304a"}}}}
+      scales:{x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
+              y:{ticks:{color:"#8b94ad",callback:v=>"¥"+v.toLocaleString("ja-JP")},grid:{color:"#27304a"}}}}
   });
 }
 
 document.getElementById("search").oninput = render;
 document.getElementById("setFilter").onchange = render;
-document.querySelectorAll("th[data-k]").forEach(th=>{
-  th.onclick = ()=>{ const k=th.dataset.k; sortDir = (sortKey===k)? -sortDir : 1; sortKey=k; render(); };
-});
 load();
 </script>
 </body>
