@@ -77,9 +77,15 @@ CREATE TABLE tcg_source (
 
 -- --------------------------------------------------------------------
 -- PREZZI (storico). Legato a (card_id, source_code).
---   price_raw  : buying price grezzo rilevato
---   price_norm : prezzo normalizzato (es. *1.10), SEPARATO dal grezzo
---   condition  : condizione (default NM); in_stock 0 = non confermato/non trovato
+--   price_raw    : buying price GREZZO rilevato (o riportato dal carry-forward)
+--   price_norm   : prezzo con commissione *1.10, SEPARATO dal grezzo
+--   condition    : condizione (default NM); in_stock 0 = non confermato/non trovato
+--   price_status : 'confirmed' = trovato in questa passata,
+--                  'carried'   = riportato dall'ultimo prezzo noto (entro il limite),
+--                  'absent'    = non trovato e nessun prezzo recente da riportare.
+--   is_outlier   : 1 = lo scarto vs la mediana storica della carta supera la soglia
+--                  (flag SOLO informativo: l'indice ufficiale NON lo usa; la vista
+--                  normalizzata in export_web esclude gli outlier).
 -- --------------------------------------------------------------------
 CREATE TABLE tcg_price (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +96,8 @@ CREATE TABLE tcg_price (
   currency      TEXT    NOT NULL DEFAULT 'JPY',
   condition     TEXT    NOT NULL DEFAULT 'NM',
   in_stock      INTEGER NOT NULL DEFAULT 1,
+  price_status  TEXT    NOT NULL DEFAULT 'confirmed',
+  is_outlier    INTEGER NOT NULL DEFAULT 0,
   scraped_at    TEXT    NOT NULL
 );
 CREATE INDEX idx_price_card_source ON tcg_price(card_id, source_code);

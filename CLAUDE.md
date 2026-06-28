@@ -66,8 +66,13 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   (tutti i giochi), `HareruyaAdapter` (solo Pokémon), `YuyuteiAdapter` (One Piece + Yu-Gi-Oh,
   per-set `/buy/{opc|ygo}/s/{set}` con cache). Registry `ADAPTERS`. Aggiungere una fonte = aggiungere
   un adapter qui (vedi `docs/ADAPTERS.md`).
-- `src/database.py` — `save_price` (carry-forward), `export_web` (JSON multi-fonte: ogni riga
-  buylist ha `prices`{source:…} + `game`, `best_*` su tutte le fonti; indice/trend per fonte dinamica)
+- `src/database.py` — `save_price` (status esplicito `confirmed/carried/absent`, carry-forward
+  LIMITATO nel tempo `max_carry_days`, flag `is_outlier` vs mediana storica), `export_web` (JSON
+  multi-fonte: ogni riga buylist ha `prices`{source:{price,comm,stock,status,outlier}} + `game`
+  + `trend`{source:{d7,d30,d90}}, `best_*` su tutte le fonti; indice/trend per fonte dinamica).
+  `setindex.json`: indice UFFICIALE (`sets`/`global`, pesi fissi alla data base = foglio Charts)
+  + vista NORMALIZZATA anti-outlier (`sets_norm`/`global_norm`, esclude outlier e non-confirmed).
+  `ensure_intelligence_columns` aggiunge le colonne Fase 3 ai DB v2 esistenti (idempotente).
 - `db/seed_onepiece_sample.sql`, `db/seed_yugioh_sample.sql` — seed di PROVA One Piece (OP01,
   standard + variante parallel) e Yu-Gi-Oh (QCCU-JP002), per il sandbox `tcg_tracker.backup.db`
 - `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; cicla sul registry
@@ -123,9 +128,9 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - **Dashboard a doppia fonte**: `dashboard/dashboard.html` ha i dati INLINE (`const DATA=[…]`,
   snapshot stale) E separatamente in `dashboard/data/buylist.json`. `history.json` e le
   immagini `.webp` esistono ma NON sono usate. Va unificato su un'unica fonte via fetch.
-- **Carry-forward** in `save_price`: riusa l'ultimo prezzo con `in_stock=0`, mascherando carte
-  delisted e inquinando l'indice di set. Da rendere esplicito e limitato nel tempo.
-- **best_price = max()**: può catturare una variante/error card invece della standard.
+- **best_price = max()**: può catturare una variante/error card invece della standard. Ora il
+  flag `is_outlier` (vs mediana storica) la segnala e la vista normalizzata la esclude
+  dall'indice, ma la SELEZIONE del best_price è ancora `max()`: migliorabile.
 - **DB committato a ogni run**: gonfia la history git nel tempo.
 - **Casing incoerente** nei dati: `S12a` vs `SV1V`; `full_name` mescola JP/EN e ripete il set.
 
@@ -146,7 +151,18 @@ con stato (aggiornalo a fine fase):
       ⚠️ YGO: lo stesso set code ha piu' rarita'/versioni (CardRush distingue per rarita', Yuyu-tei
       per suffisso nome); senza disambiguazione fine la scelta 'standard' prende il max per fonte
       (puo' essere una stampa diversa tra CR e Yuyu-tei). Migliorabile in Fase 3 (intelligence).
-- [ ] Fase 3 — intelligence prezzi
+- [x] Fase 3 — intelligence prezzi
+      Slice prezzi+trend in `src/database.py`: prezzo grezzo (`price_raw`) vs normalizzato
+      (`price_norm` ×1.10, invariato); carry-forward reso ESPLICITO e LIMITATO nel tempo
+      (`price_status` confirmed/carried/absent, ancorato all'ultimo confirmed, `max_carry_days`
+      default 30); rilevamento outlier vs MEDIANA storica della carta+fonte (`is_outlier`,
+      soglia 50%, serve ≥3 storici). Trend per carta 7/30/90gg in `buylist.json`. Vista
+      NORMALIZZATA anti-outlier in `setindex.json` (`sets_norm`/`global_norm`) AGGIUNTIVA:
+      l'indice UFFICIALE (`sets`/`global`, pesi fissi alla data base) resta byte-identico al
+      foglio Charts/Market Trend — lockato da `tests/test_intelligence.py`
+      (`test_official_index_matches_excel_formula`). 62 test verdi.
+      ⚠️ Resta: la SELEZIONE del best_price è ancora `max()` (il flag outlier la segnala ma non
+      la corregge); disambiguazione fine rarità/stampa YGO (vedi Fase 2).
 - [ ] Fase 4 — UX
 - [ ] Fase 5 — scala / ops
 

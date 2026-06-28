@@ -21,6 +21,31 @@ def get_conn(mysql_cfg: dict | None = None):
     return conn
 
 
+# Colonne "intelligence" (Fase 3) aggiunte a tcg_price DOPO lo schema v2.
+#   price_status : confirmed | carried | absent (vedi save_price)
+#   is_outlier   : 1 = scarto vs mediana storica oltre soglia
+# Sono ADDITIVE: i DB v2 esistenti vengono aggiornati in-place senza perdere
+# storico (ALTER TABLE ... ADD COLUMN). Idempotente.
+_INTEL_COLUMNS = {
+    "price_status": "TEXT NOT NULL DEFAULT 'confirmed'",
+    "is_outlier":   "INTEGER NOT NULL DEFAULT 0",
+}
+
+
+def ensure_intelligence_columns(conn):
+    """Aggiunge a tcg_price le colonne price_status/is_outlier se mancano.
+
+    Idempotente e non distruttiva: i record storici esistenti ereditano il
+    DEFAULT ('confirmed', 0). Va chiamata prima di scrivere/esportare prezzi.
+    """
+    cur = conn.cursor()
+    existing = {r[1] for r in cur.execute("PRAGMA table_info(tcg_price)")}
+    for col, decl in _INTEL_COLUMNS.items():
+        if col not in existing:
+            cur.execute(f"ALTER TABLE tcg_price ADD COLUMN {col} {decl}")
+    conn.commit()
+
+
 def fetch_cards(conn):
     """Tutte le carte da scrapare (codice + url cardrush + model number).
 
@@ -45,40 +70,108 @@ def fetch_cards(conn):
     return cur.fetchall()
 
 
+def _parse_dt(value):
+    """'YYYY-MM-DD HH:MM:SS' (o datetime) -> datetime. None se non parsabile."""
+    if isinstance(value, dt.datetime):
+        return value
+    if not value:
+        return None
+    try:
+        return dt.datetime.strptime(str(value)[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        try:
+            return dt.datetime.strptime(str(value)[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+
+
+def _median(values):
+    """Mediana di una lista di numeri (None se vuota)."""
+    s = sorted(values)
+    n = len(s)
+    if n == 0:
+        return None
+    mid = n // 2
+    return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2.0
+
+
 def _last_known_price(conn, card_id, source):
-    """Ultimo price_raw NON nullo registrato per questa carta+fonte (o None)."""
+    """Ultimo (price_raw, scraped_at) NON nullo per questa carta+fonte (o None).
+
+    Considera SOLO i prezzi 'confirmed': un carry-forward non rigenera se stesso
+    (la catena di riporti non si auto-prolunga oltre l'ultimo prezzo reale)."""
     ph = "?" if isinstance(conn, sqlite3.Connection) else "%s"
     row = conn.cursor().execute(
-        f"""SELECT price_raw FROM tcg_price
+        f"""SELECT price_raw, scraped_at FROM tcg_price
             WHERE card_id={ph} AND source_code={ph} AND price_raw IS NOT NULL
+              AND price_status='confirmed'
             ORDER BY scraped_at DESC, id DESC LIMIT 1""",
         (card_id, source)).fetchone()
-    return row[0] if row else None
+    return (row[0], row[1]) if row else None
 
 
-def save_price(conn, card_id, source, buying_price, in_stock=True):
-    """Inserisce un record di prezzo (storico). commission = prezzo * 1.10.
+def _confirmed_prices(conn, card_id, source):
+    """Tutti i price_raw 'confirmed' (per la mediana storica)."""
+    ph = "?" if isinstance(conn, sqlite3.Connection) else "%s"
+    rows = conn.cursor().execute(
+        f"""SELECT price_raw FROM tcg_price
+            WHERE card_id={ph} AND source_code={ph} AND price_raw IS NOT NULL
+              AND price_status='confirmed'""",
+        (card_id, source)).fetchall()
+    return [r[0] for r in rows]
 
-    Carry-forward: se la carta NON e' stata trovata (buying_price None) si
-    riporta l'ULTIMO prezzo noto per quella carta+fonte. Cosi' il prezzo resta
-    l'ultimo valido finche' il sito non rintraccia la carta. Questi record
-    riportati sono marcati in_stock=0 (prezzo non confermato in questa passata).
-    Se non esiste alcun prezzo precedente, resta None.
+
+def save_price(conn, card_id, source, buying_price, in_stock=True, *,
+               run_date=None, max_carry_days=30, outlier_threshold=0.5,
+               min_history_for_outlier=3):
+    """Inserisce un record di prezzo (storico). price_norm = prezzo * 1.10.
+
+    Stato esplicito (colonna price_status):
+      - 'confirmed': prezzo trovato in questa passata. Si calcola is_outlier
+        confrontandolo con la MEDIANA storica (confirmed) della carta+fonte:
+        is_outlier=1 se |prezzo - mediana| / mediana > outlier_threshold
+        (serve almeno min_history_for_outlier prezzi storici per giudicare).
+      - 'carried': carta non trovata MA esiste un ultimo prezzo confermato
+        recente (entro max_carry_days). Si riporta quel prezzo, in_stock=0.
+        Carry-forward ESPLICITO e LIMITATO NEL TEMPO: oltre il limite NON si
+        riporta piu' (la carta risulta 'absent'), cosi' un delisting non resta
+        mascherato all'infinito.
+      - 'absent': carta non trovata e nessun prezzo recente -> price_raw NULL.
+
+    is_outlier e lo stato sono SOLO informativi/per la vista normalizzata:
+    l'indice UFFICIALE (export_web) continua a usare price_raw cosi' com'e'.
     """
-    if buying_price is None:
-        carried = _last_known_price(conn, card_id, source)
-        if carried is not None:
-            buying_price = carried
+    ensure_intelligence_columns(conn)
+    now_dt = _parse_dt(run_date) or dt.datetime.now()
+    now = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+    is_outlier = 0
+
+    if buying_price is not None:
+        status = "confirmed"
+        hist = _confirmed_prices(conn, card_id, source)
+        med = _median(hist)
+        if med and len(hist) >= min_history_for_outlier:
+            if abs(buying_price - med) / med > outlier_threshold:
+                is_outlier = 1
+    else:
+        last = _last_known_price(conn, card_id, source)
+        last_dt = _parse_dt(last[1]) if last else None
+        if last and last_dt and (now_dt - last_dt).days <= max_carry_days:
+            buying_price = last[0]
             in_stock = False
+            status = "carried"
+        else:
+            in_stock = False
+            status = "absent"
+
     comm = round(buying_price * 1.10, 2) if buying_price is not None else None
-    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    placeholder = "?" if isinstance(conn, sqlite3.Connection) else "%s"
-    ph = placeholder
+    ph = "?" if isinstance(conn, sqlite3.Connection) else "%s"
     sql = f"""INSERT INTO tcg_price
-              (card_id, source_code, price_raw, price_norm, currency, condition, in_stock, scraped_at)
-              VALUES ({ph},{ph},{ph},{ph},'JPY','NM',{ph},{ph})"""
+              (card_id, source_code, price_raw, price_norm, currency, condition,
+               in_stock, price_status, is_outlier, scraped_at)
+              VALUES ({ph},{ph},{ph},{ph},'JPY','NM',{ph},{ph},{ph},{ph})"""
     conn.cursor().execute(sql, (card_id, source, buying_price, comm,
-                                1 if in_stock else 0, now))
+                                1 if in_stock else 0, status, is_outlier, now))
     conn.commit()
 
 
@@ -106,6 +199,7 @@ def export_web(conn, out_dir):
     import datetime as dt
 
     os.makedirs(out_dir, exist_ok=True)
+    ensure_intelligence_columns(conn)
     generated_at = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cur = conn.cursor()
 
@@ -120,12 +214,14 @@ def export_web(conn, out_dir):
     # una seconda fonte diversa (es. One Piece: cardrush + yuyutei) compaiono nella
     # buylist. best_price/best_source vengono RICALCOLATI su tutte le fonti presenti
     # (per Pokémon = stesse due fonti -> valori invariati).
-    cur.execute("""SELECT card_id, source_code, price_raw, price_norm, in_stock
+    cur.execute("""SELECT card_id, source_code, price_raw, price_norm, in_stock,
+                          price_status, is_outlier
                    FROM v_latest_price""")
     prices_by_card = {}
-    for cid, src, raw, norm, stock in cur.fetchall():
+    for cid, src, raw, norm, stock, status, outlier in cur.fetchall():
         prices_by_card.setdefault(cid, {})[src] = {
-            "price": raw, "comm": norm, "stock": stock}
+            "price": raw, "comm": norm, "stock": stock,
+            "status": status, "outlier": outlier}
     cur.execute("""SELECT c.id, g.game_code FROM tcg_card c
                    JOIN tcg_set s ON s.id = c.set_id
                    JOIN tcg_game g ON g.game_code = s.game_code""")
@@ -145,11 +241,9 @@ def export_web(conn, out_dir):
         r["best_price"] = best_val
         r["best_source"] = best_src
 
-    json.dump({"generated_at": generated_at, "rows": rows},
-              open(os.path.join(out_dir, "buylist.json"), "w", encoding="utf-8"),
-              ensure_ascii=False, default=str)
-
     # --- serie storica (1 punto/giorno) -----------------------------------
+    # UFFICIALE: ultimo prezzo del giorno per carta+fonte, price_raw cosi' com'e'
+    # (include i 'carried'). E' la base dell'indice ufficiale: NON va filtrata.
     cur.execute("""
         SELECT card_id, source_code AS source, substr(scraped_at, 1, 10) AS d, price_raw
         FROM tcg_price
@@ -160,8 +254,52 @@ def export_web(conn, out_dir):
     series = {}
     for card_id, source, day, price in cur.fetchall():
         series.setdefault(str(card_id), {}).setdefault(source, []).append([day, price])
+
+    # NORMALIZZATA (vista AGGIUNTIVA, anti-outlier): stessa granularita' ma SOLO
+    # prezzi 'confirmed' e non-outlier. Non tocca la serie/indice ufficiale.
+    cur.execute("""
+        SELECT card_id, source_code AS source, substr(scraped_at, 1, 10) AS d, price_raw
+        FROM tcg_price
+        WHERE id IN (SELECT MAX(id) FROM tcg_price
+                     GROUP BY card_id, source_code, substr(scraped_at, 1, 10))
+          AND price_raw IS NOT NULL AND price_status='confirmed' AND is_outlier=0
+        ORDER BY card_id, source_code, d
+    """)
+    series_norm = {}
+    for card_id, source, day, price in cur.fetchall():
+        series_norm.setdefault(str(card_id), {}).setdefault(source, []).append([day, price])
+
     json.dump({"generated_at": generated_at, "series": series},
               open(os.path.join(out_dir, "history.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, default=str)
+
+    # --- trend per carta (7/30/90 gg) -------------------------------------
+    # Variazione % dell'ultimo prezzo rispetto al piu' recente <= N giorni fa,
+    # per fonte. Usa la serie UFFICIALE (il prezzo che la dashboard mostra).
+    def _trend(points):
+        pts = [(d, p) for d, p in points if p is not None]
+        if not pts:
+            return None
+        last_day = dt.date.fromisoformat(pts[-1][0])
+        last_val = pts[-1][1]
+        out = {}
+        for n, key in ((7, "d7"), (30, "d30"), (90, "d90")):
+            cutoff = last_day - dt.timedelta(days=n)
+            base = None
+            for d, p in pts:
+                if dt.date.fromisoformat(d) <= cutoff:
+                    base = p
+                else:
+                    break
+            out[key] = round((last_val - base) / base * 100, 1) if base else None
+        return out
+
+    for r in rows:
+        cid = str(r["card_id"])
+        r["trend"] = {src: _trend(pts) for src, pts in series.get(cid, {}).items()}
+
+    json.dump({"generated_at": generated_at, "rows": rows},
+              open(os.path.join(out_dir, "buylist.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 
     # --- indice di prezzo per set (media ponderata a pesi fissi) ----------
@@ -190,13 +328,13 @@ def export_web(conn, out_dir):
             out.append([d, round(num / den, 1) if den else 0])
         return out
 
-    def _collect(card_ids):
-        """{source: {date: {card_id: price}}} per i card_id indicati.
-        Le fonti sono dinamiche (cardrush/hareruya per Pokémon, cardrush/yuyutei
-        per One Piece, ecc.): non vanno cablate."""
+    def _collect(card_ids, src_series):
+        """{source: {date: {card_id: price}}} per i card_id indicati, da una
+        serie data (ufficiale o normalizzata). Le fonti sono dinamiche
+        (cardrush/hareruya per Pokémon, cardrush/yuyutei per One Piece, ecc.)."""
         acc = {}
         for cid in card_ids:
-            for src, pts in series.get(cid, {}).items():
+            for src, pts in src_series.get(cid, {}).items():
                 for day, price in pts:
                     if price is None:
                         continue
@@ -212,18 +350,29 @@ def export_web(conn, out_dir):
                 entry[src] = s
         return entry
 
-    set_index = {}
     by_set = {}
     for cid, sname in card_set.items():
         by_set.setdefault(sname, []).append(cid)
-    for sname, cids in by_set.items():
-        entry = _index_entry(_collect(cids))
-        if entry:
-            set_index[sname] = entry
 
-    glob = _index_entry(_collect(list(card_set)))
+    def _build_index(src_series):
+        """sets + global per una serie data."""
+        si = {}
+        for sname, cids in by_set.items():
+            entry = _index_entry(_collect(cids, src_series))
+            if entry:
+                si[sname] = entry
+        gl = _index_entry(_collect(list(card_set), src_series))
+        return si, gl
 
-    json.dump({"generated_at": generated_at, "sets": set_index, "global": glob},
+    # UFFICIALE (contratto): pesi fissi alla data base, su price_raw com'e'.
+    set_index, glob = _build_index(series)
+    # NORMALIZZATO (vista aggiuntiva): stesso calcolo ma su serie senza outlier
+    # e senza prezzi non-confermati. Chiavi distinte -> non sostituisce l'ufficiale.
+    set_index_norm, glob_norm = _build_index(series_norm)
+
+    json.dump({"generated_at": generated_at,
+               "sets": set_index, "global": glob,
+               "sets_norm": set_index_norm, "global_norm": glob_norm},
               open(os.path.join(out_dir, "setindex.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 
