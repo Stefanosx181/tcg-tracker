@@ -137,12 +137,12 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - Dove esistono **API/dataset ufficiali**, preferiscili allo scraping (più stabili, meno ToS).
 
 ## Trappole note (già individuate — non reintrodurle)
-- **DB reale ancora v1**: `tcg_tracker.db` non è migrato a v2 (manca `tcg_game`/`source_code`),
-  quindi `export_web` (codice v2) NON gira sul DB reale: i JSON in `dashboard/data/` sono
-  prodotti dal vecchio export (schema PIATTO, valori reali). La migrazione avverrà alla prossima
-  `init_db` (auto-upgrade v1→v2, storico preservato). `index.html` legge `prices{}` con
-  FALLBACK ai campi piatti (`cardrush_price`…): su Cloudflare usa `prices{}`, in locale (dati
-  v1 piatti) mostra comunque i prezzi → localhost identico al sito anche prima della migrazione.
+- **Solo Pokémon ha dati reali**: il DB reale è v2 ma contiene SOLO il catalogo Pokémon (263
+  carte). One Piece/Yu-Gi-Oh hanno solo carte-campione nel sandbox `tcg_tracker.backup.db`
+  (OP=2, YGO=1): manca un CATALOGO reale OP/YGO da scrapare (da costruire da zero). `index.html`
+  legge `prices{}` con fallback ai campi piatti (robustezza per snapshot vecchi).
+- **UI a pagina unica**: `index.html` raggruppa per SET senza separazione per GIOCO. Con dati
+  multi-gioco i tre giochi finirebbero mescolati: serve una separazione per `game` (scheda/filtro).
 - **best_price = max()**: può catturare una variante/error card invece della standard. Ora il
   flag `is_outlier` (vs mediana storica) la segnala e la vista normalizzata la esclude
   dall'indice, ma la SELEZIONE del best_price è ancora `max()`: migliorabile.
@@ -156,8 +156,10 @@ con stato (aggiornalo a fine fase):
       retry+backoff+rate-limit, `LayoutError` + allarme per-fonte, test pytest offline su fixtures)
 - [x] Fase 1 — schema multi-gioco + migrazione (schema v2 game-agnostic: game/set/card con
       identità canonica + source + price raw/norm; migrazione id-preserving v1→v2 con diff-zero
-      su buylist/indice; viste con alias v1). ⚠️ Il DB reale va migrato col `via`: alla prossima
-      `init_db` (cron o manuale) viene aggiornato a v2 automaticamente.
+      su buylist/indice; viste con alias v1). ✅ DB reale MIGRATO a v2 il 2026-06-28
+      (`init_db.py`, storico 5048 prezzi / 263 carte preservato, diff-zero su buylist verificato;
+      backup `tcg_tracker.db.premig.bak` locale, non committato). `buylist.json` ora ha
+      `game`/`prices{}`/`trend{}`; `index.html` usa lo schema nativo `prices{}`.
 - [x] Fase 2 — One Piece, Yu-Gi-Oh
       Entrambi FATTI: adapter CardRush (riuso, swap categoria) + Yuyu-tei (per-set) a due fonti,
       buylist+trend per gioco. One Piece: OP01-001 + variante parallel. Yu-Gi-Oh: set code
