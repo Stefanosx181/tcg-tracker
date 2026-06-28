@@ -221,6 +221,43 @@ def test_yuyutei_parse_layout_error():
         a.parse("<html>pagina irriconoscibile</html>", q)
 
 
+# ====================================================================
+# YU-GI-OH — CardRush YGO (model_number = set code, es. QCCU-JP002) e Yuyu-tei
+# ====================================================================
+CARDRUSH_YGO_HTML = (FIX / "cardrush_ygo_QCCU-JP002.html").read_text(encoding="utf-8")
+YUYUTEI_YGO_HTML = (FIX / "yuyutei_ygo_qccu.html").read_text(encoding="utf-8")
+
+YGO_CARD = {
+    "id": 200, "game_code": "yugioh", "pack_code": "QCCU",
+    "card_code": "QCCU-JP002", "model_number": "QCCU-JP002", "number": "QCCU-JP002",
+    "variant": "", "full_name": "ブラック・マジシャン・ガール",
+    "cardrush_url": "https://cardrush.media/yugioh/buying_prices?model_number=QCCU-JP002",
+    "hareruya_url": None,
+}
+
+
+def test_routing_yugioh_is_cardrush_plus_yuyutei():
+    assert [a.source_code for a in ad.get_adapters(game="yugioh")] == ["cardrush", "yuyutei"]
+    assert ad.HareruyaAdapter().supports("yugioh") is False
+    assert ad.YuyuteiAdapter().supports("yugioh") is True
+
+
+def test_cardrush_ygo_standard_picks_max_listing():
+    a = ad.CardRushAdapter()
+    offer = a.scrape(YGO_CARD, _FakeClient(CARDRUSH_YGO_HTML))
+    # extra_difference None per tutti -> tutte standard; vince il prezzo piu' alto
+    assert offer is not None and offer.variant == ""
+    assert offer.price == 150000
+
+
+def test_yuyutei_ygo_build_query_and_parse():
+    a = ad.YuyuteiAdapter()
+    q = a.build_query(YGO_CARD)
+    assert q.url == "https://yuyu-tei.jp/buy/ygo/s/qccu"
+    offer = a.scrape(YGO_CARD, _FakeClient(YUYUTEI_YGO_HTML))
+    assert offer is not None and offer.price == 170000
+
+
 def test_yuyutei_fetch_caches_set_page():
     a = ad.YuyuteiAdapter()
 

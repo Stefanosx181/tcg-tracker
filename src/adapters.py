@@ -220,7 +220,7 @@ class HareruyaAdapter(SourceAdapter):
 class YuyuteiAdapter(SourceAdapter):
     source_code = "yuyutei"
     display_name = "Yuyu-tei"
-    games = {"onepiece"}             # per ora One Piece (Yu-Gi-Oh si abilita a parte)
+    games = {"onepiece", "yugioh"}   # pagine per-set identiche: /buy/opc|ygo/s/{set}
 
     # segmento di percorso per gioco: /buy/{seg}/s/{set}
     GAME_SEGMENT = {"pokemon": "poke", "onepiece": "opc", "yugioh": "ygo"}

@@ -63,12 +63,13 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   + helper. `LayoutError` = struttura pagina cambiata (≠ "0 risultati"). Selettori in `HARERUYA_SELECTORS`.
 - `src/adapters.py` — interfaccia `SourceAdapter` (`build_query`/`fetch`/`parse`→`Offer`, +
   `select` variant-aware/`scrape` condivisi, `supports(game)`) e gli adapter `CardRushAdapter`
-  (tutti i giochi), `HareruyaAdapter` (solo Pokémon), `YuyuteiAdapter` (One Piece, per-set con
-  cache). Registry `ADAPTERS`. Aggiungere una fonte = aggiungere un adapter qui (vedi `docs/ADAPTERS.md`).
+  (tutti i giochi), `HareruyaAdapter` (solo Pokémon), `YuyuteiAdapter` (One Piece + Yu-Gi-Oh,
+  per-set `/buy/{opc|ygo}/s/{set}` con cache). Registry `ADAPTERS`. Aggiungere una fonte = aggiungere
+  un adapter qui (vedi `docs/ADAPTERS.md`).
 - `src/database.py` — `save_price` (carry-forward), `export_web` (JSON multi-fonte: ogni riga
   buylist ha `prices`{source:…} + `game`, `best_*` su tutte le fonti; indice/trend per fonte dinamica)
-- `db/seed_onepiece_sample.sql` — seed di PROVA One Piece (OP01, standard + variante parallel),
-  per il sandbox `tcg_tracker.backup.db` (non per il reale)
+- `db/seed_onepiece_sample.sql`, `db/seed_yugioh_sample.sql` — seed di PROVA One Piece (OP01,
+  standard + variante parallel) e Yu-Gi-Oh (QCCU-JP002), per il sandbox `tcg_tracker.backup.db`
 - `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; cicla sul registry
   `ADAPTERS` (no fonti hard-coded), `HttpClient` condiviso, conta i `LayoutError` per l'allarme per-fonte.
 - `src/init_db.py` — crea/aggiorna il DB (idempotente): bootstrap v1 dal seed → migra a v2;
@@ -137,11 +138,14 @@ con stato (aggiornalo a fine fase):
       identità canonica + source + price raw/norm; migrazione id-preserving v1→v2 con diff-zero
       su buylist/indice; viste con alias v1). ⚠️ Il DB reale va migrato col `via`: alla prossima
       `init_db` (cron o manuale) viene aggiornato a v2 automaticamente.
-- [~] Fase 2 — One Piece, Yu-Gi-Oh
-      One Piece FATTO: adapter CardRush (riuso) + Yuyu-tei (nuovo, per-set), numerazione OP01-001,
-      varianti parallel, buylist+trend a due fonti (cardrush+yuyutei). Validato sul backup
-      (seed `db/seed_onepiece_sample.sql`), Pokémon invariato. Yu-Gi-Oh ANCORA da fare
-      (abilitare `YuyuteiAdapter.games` a 'yugioh' + fonte/seed YGO).
+- [x] Fase 2 — One Piece, Yu-Gi-Oh
+      Entrambi FATTI: adapter CardRush (riuso, swap categoria) + Yuyu-tei (per-set) a due fonti,
+      buylist+trend per gioco. One Piece: OP01-001 + variante parallel. Yu-Gi-Oh: set code
+      QCCU-JP002 (numerazione PACK-JPnnn). Validati sul backup (seed `db/seed_*_sample.sql`),
+      Pokémon byte-identico sulle chiavi esistenti.
+      ⚠️ YGO: lo stesso set code ha piu' rarita'/versioni (CardRush distingue per rarita', Yuyu-tei
+      per suffisso nome); senza disambiguazione fine la scelta 'standard' prende il max per fonte
+      (puo' essere una stampa diversa tra CR e Yuyu-tei). Migliorabile in Fase 3 (intelligence).
 - [ ] Fase 3 — intelligence prezzi
 - [ ] Fase 4 — UX
 - [ ] Fase 5 — scala / ops
