@@ -32,3 +32,4 @@ tcg_tracker.backup.db
 # backup locali pre-migrazione DB (non committare)
 *.premig.bak
 *.predashboard.bak.db
+*.bak

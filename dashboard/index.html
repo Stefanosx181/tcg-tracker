@@ -216,10 +216,13 @@ const setSources = s =>{ const have=new Set();
   return SRC_ORDER.filter(x=>have.has(x)); };
 
 async function load(){
+  // cache-busting: i JSON cambiano ad ogni scrape ma l'URL resta uguale; senza
+  // questo il browser/CDN puo' servire una versione vecchia (dati "non cambiati").
+  const v = "?v=" + Date.now();
   const [b,h,si] = await Promise.all([
-    fetch("./data/buylist.json").then(r=>r.json()),
-    fetch("./data/history.json").then(r=>r.json()).catch(()=>({series:{}})),
-    fetch("./data/setindex.json").then(r=>r.json()).catch(()=>({sets:{},global:{}})),
+    fetch("./data/buylist.json"+v).then(r=>r.json()),
+    fetch("./data/history.json"+v).then(r=>r.json()).catch(()=>({series:{}})),
+    fetch("./data/setindex.json"+v).then(r=>r.json()).catch(()=>({sets:{},global:{}})),
   ]);
   DATA = b.rows||[]; HIST = h.series||{}; SETIDX = {sets:si.sets||{}, global:si.global||{}};
   document.getElementById("updated").textContent = "Aggiornato: " + (b.generated_at||"—");

@@ -97,6 +97,37 @@ def test_pick_rarity_offline():
     assert rar == "L"
 
 
+def test_run_senza_images_non_clobbera_path_locali(tmp_path):
+    # regressione: prima scarico (path locale), poi un harvest SENZA images_dir
+    # (es. solo --rarity) NON deve riportare image_url all'URL remoto.
+    class FakeResp:
+        content = b"\xff\xd8\xff\xe0fake"
+    class FakeClient:
+        def get(self, url): return FakeResp()
+    conn = _fresh_v2()
+    bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01,
+               client=FakeClient(), images_dir=str(tmp_path))
+    before = conn.execute("SELECT image_url FROM tcg_card WHERE number='OP01-120'"
+                          " AND variant='parallel'").fetchone()[0]
+    assert before.startswith("images/")
+    bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)  # niente images_dir
+    after = conn.execute("SELECT image_url FROM tcg_card WHERE number='OP01-120'"
+                         " AND variant='parallel'").fetchone()[0]
+    assert after == before, "il path locale non deve essere sovrascritto dall'URL remoto"
+
+
+def test_no_duplicati_dopo_cambio_rarita():
+    # regressione: cambiare la rarita' (che e' nel vincolo UNIQUE) e ri-catalogare
+    # NON deve creare duplicati. L'identita' carta e' (set, number, variant).
+    conn = _fresh_v2()
+    bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)
+    n1 = conn.execute("SELECT COUNT(*) FROM tcg_card").fetchone()[0]
+    conn.execute("UPDATE tcg_card SET rarity='SEC' WHERE number='OP01-120'")
+    ins, skip, _, _ = bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)
+    n2 = conn.execute("SELECT COUNT(*) FROM tcg_card").fetchone()[0]
+    assert ins == 0 and n2 == n1            # nessuna carta nuova, nessun duplicato
+
+
 def test_short_rarity():
     assert bc._short_rarity("クォーターセンチュリーシークレット") == "QCSE"
     assert bc._short_rarity("SR/P") == "SR/P"   # gia' corta -> invariata

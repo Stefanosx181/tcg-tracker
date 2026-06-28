@@ -149,6 +149,11 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - **Indice globale mescola i giochi**: il bottone "Andamento" usa `setindex.global` calcolato
   su TUTTI i set (ora anche OP/YGO): aggregato poco sensato cross-gioco. Da rendere per-gioco.
   (I 📈 per-set restano corretti.)
+- **UNIQUE di `tcg_card` include `rarity`**: il vincolo è `(set_id, number, language, rarity,
+  variant)`. L'identità VERA di una carta è `(set, number, variant)`: cambiare la rarità e
+  ri-catalogare con `INSERT OR IGNORE` creava DUPLICATI. `build_catalog.py` ora fa un controllo
+  di esistenza esplicito su `(set, number, variant)` (no INSERT OR IGNORE). Lockato da
+  `tests/test_build_catalog.py::test_no_duplicati_dopo_cambio_rarita`. Schema da semplificare.
 - **best_price = max()**: può catturare una variante/error card invece della standard. Ora il
   flag `is_outlier` (vs mediana storica) la segnala e la vista normalizzata la esclude
   dall'indice, ma la SELEZIONE del best_price è ancora `max()`: migliorabile.

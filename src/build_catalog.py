@@ -113,26 +113,40 @@ def harvest(conn, game_code, set_code, set_name, *,
         if key in seen:                  # piu' stampe stessa (number,variant): una sola carta
             continue
         seen.add(key)
-        cur = conn.execute("""
-            INSERT OR IGNORE INTO tcg_card
-              (set_id, number, language, rarity, variant, name, name_en, cardrush_url)
-            VALUES (?,?,?,?,?,?,?,?)""",
-            (set_id, number, "JP", "", variant, name, None,
-             _cardrush_url(game_code, number)))
-        if cur.rowcount:
-            inserted += 1
-        else:
+        # Identita' carta = (set, number, variant). NON usiamo INSERT OR IGNORE:
+        # il vincolo UNIQUE di tcg_card include anche rarity, quindi dopo un
+        # arricchimento rarità un re-harvest creerebbe DUPLICATI. Controllo esplicito.
+        row = conn.execute("""SELECT id FROM tcg_card
+                              WHERE set_id=? AND number=? AND variant=?""",
+                           (set_id, number, variant)).fetchone()
+        if row:
             skipped += 1
-        # immagine: scarica (se richiesto) e salva il path; UPDATE cosi' aggiorna
-        # anche le carte gia' presenti da un harvest precedente.
+        else:
+            conn.execute("""INSERT INTO tcg_card
+                  (set_id, number, language, rarity, variant, name, name_en, cardrush_url)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (set_id, number, "JP", "", variant, name, None,
+                 _cardrush_url(game_code, number)))
+            inserted += 1
+        # immagine: scarica (se richiesto) e salva il path locale; UPDATE cosi'
+        # aggiorna anche le carte gia' presenti. SENZA --images salviamo l'URL
+        # remoto SOLO come fallback: NON sovrascriviamo un'immagine locale gia'
+        # scaricata (altrimenti un run --rarity cancellerebbe i path 'images/...').
         img = it.get("image")
         if img:
-            stored = _download_image(img, images_dir, number, variant, client) if images_dir else img
-            if stored:
-                conn.execute("""UPDATE tcg_card SET image_url=?
-                                WHERE set_id=? AND number=? AND variant=?""",
-                             (stored, set_id, number, variant))
-                images += 1
+            if images_dir:
+                stored = _download_image(img, images_dir, number, variant, client)
+                if stored:
+                    conn.execute("""UPDATE tcg_card SET image_url=?
+                                    WHERE set_id=? AND number=? AND variant=?""",
+                                 (stored, set_id, number, variant))
+                    images += 1
+            else:
+                cur2 = conn.execute("""UPDATE tcg_card SET image_url=?
+                        WHERE set_id=? AND number=? AND variant=?
+                        AND (image_url IS NULL OR image_url NOT LIKE 'images/%')""",
+                        (img, set_id, number, variant))
+                images += cur2.rowcount
     conn.commit()
     return inserted, skipped, len(items), images
 
