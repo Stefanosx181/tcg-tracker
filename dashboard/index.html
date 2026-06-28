@@ -232,6 +232,7 @@ function render(){
   for(const s of SETS){
     if(sf && s.name!==sf) continue;
     const cards = s.cards.filter(c=> !query ||
+      (c.name_en||"").toLowerCase().includes(query) ||
       (c.full_name||"").toLowerCase().includes(query) ||
       (c.card_code||"").toLowerCase().includes(query));
     if(!cards.length) continue;
@@ -260,7 +261,7 @@ function render(){
       tile.innerHTML =
         `<div class="imgbox"><img loading="lazy" src="${imgSrc(c)}" alt="" onerror="this.style.visibility='hidden'"></div>
          <div class="body">
-           <div class="nm" title="${esc(c.full_name)}">${esc(c.full_name)}</div>
+           <div class="nm" title="${esc(c.full_name)}">${esc(c.name_en||c.full_name)}</div>
            <div class="meta"><span class="code">${esc(c.card_code)}</span>${c.rarity?`<span class="rar">${esc(c.rarity)}</span>`:''}</div>
            <div class="prices">
              ${priceRow('CR','cr',c.cardrush_price,c.cardrush_stock,c._wCR)}
@@ -279,8 +280,8 @@ function openChart(c){
   idxName=null;
   const img=document.getElementById("mImg"); img.style.display=""; img.src=imgSrc(c);
   document.getElementById("mToggle").hidden=true;
-  document.getElementById("mName").textContent = c.full_name||c.card_code;
-  document.getElementById("mSub").textContent = `${c.card_code}${c.rarity?' · '+c.rarity:''}`;
+  document.getElementById("mName").textContent = c.name_en||c.full_name||c.card_code;
+  document.getElementById("mSub").textContent = `${c.full_name||""} · ${c.card_code}${c.rarity?' · '+c.rarity:''}`;
   document.getElementById("modal").classList.add("on");
   drawChart(document.getElementById("mCanvas"), c.card_id);
 }
