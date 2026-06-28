@@ -55,11 +55,16 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 ```
 
 ## File chiave
-- `src/scrapers.py` — logica scraping CardRush + Hareruya (selettori in `HARERUYA_SELECTORS`)
+- `src/scrapers.py` — scraping a 3 livelli testabili: `fetch` (`HttpClient`: timeout,
+  retry+backoff, User-Agent, rate-limit) → `parse_cardrush`/`parse_hareruya` (HTML/JSON
+  grezzo → lista, offline) → `pick_cardrush`/`pick_hareruya` (filtro + scelta prezzo).
+  `LayoutError` = struttura pagina cambiata (≠ "0 risultati"). Selettori in `HARERUYA_SELECTORS`.
 - `src/database.py` — `save_price` (carry-forward), `export_web` (genera i JSON + indice set)
-- `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`
+- `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; usa un solo
+  `HttpClient` condiviso e conta i `LayoutError` per l'allarme rottura per-fonte.
 - `src/init_db.py` — crea il DB (idempotente; `--force` ricrea da zero = cancella storico)
 - `db/schema_sqlite.sql` — schema attuale (Pokémon-specifico)
+- `tests/test_scrapers.py` — test pytest offline; `tests/fixtures/` = pagine reali CR+HR
 - `dashboard/dashboard.html` — dashboard (ATTENZIONE: dati inline stale, vedi sotto)
 
 ## Comandi
@@ -68,7 +73,7 @@ python src/init_db.py            # crea DB se manca (storico preservato)
 python src/run.py --limit 3      # test scraping su 3 carte
 python src/run.py --set S12A     # un solo set
 python src/run.py --only cardrush
-pytest                           # test (dove presenti)
+pytest                           # test scraper offline (usa tests/fixtures/)
 ```
 
 ---
@@ -106,15 +111,14 @@ pytest                           # test (dove presenti)
 - **Schema Pokémon-specifico**: `pack_code`/`model_number`/`card_code` ('114/083') non reggono
   One Piece (OP01-001) né Yu-Gi-Oh. Serve dimensione `game` + identità canonica prima di
   aggiungere giochi.
-- **Scraper fragili**: selettori Hareruya "da adeguare", CardRush legato alla forma di
-  `__NEXT_DATA__`, nessun test/fixture. Robustezza = priorità.
 - **DB committato a ogni run**: gonfia la history git nel tempo.
 - **Casing incoerente** nei dati: `S12a` vs `SV1V`; `full_name` mescola JP/EN e ripete il set.
 
 ## Roadmap (riferimento)
 Il piano completo dei prompt per fase è in `PROMPT_PLAYBOOK_CLAUDECODE.md`. Ordine rigido,
 con stato (aggiornalo a fine fase):
-- [ ] Fase 0 — scraper robusti e testabili
+- [x] Fase 0 — scraper robusti e testabili (3 livelli fetch/parse/pick, `HttpClient` con
+      retry+backoff+rate-limit, `LayoutError` + allarme per-fonte, test pytest offline su fixtures)
 - [ ] Fase 1 — schema multi-gioco + migrazione
 - [ ] Fase 2 — One Piece, Yu-Gi-Oh
 - [ ] Fase 3 — intelligence prezzi

@@ -1,5 +1,7 @@
 requests>=2.31
 beautifulsoup4>=4.12
 flask>=3.0
+# test (offline, fixtures in tests/fixtures/):
+pytest>=8.0
 # opzionale, solo se usi MySQL invece di SQLite:
 # mysql-connector-python>=8.3

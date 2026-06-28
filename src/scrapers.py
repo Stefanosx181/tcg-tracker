@@ -1,18 +1,31 @@
 """
-scrapers.py - Recupero buying price dai due siti.
+scrapers.py - Recupero buying price dai due siti, in 3 livelli separati e testabili.
 
-  cardrush : l'URL salvato nell'Excel (colonna E) puntava a un endpoint che un
-             tempo restituiva JSON. Oggi cardrush.media e' una app Next.js che
-             rende la pagina in HTML con i dati incorporati nello script
-             <script id="__NEXT_DATA__">. Lo scraper estrae da li' la lista
-             'buyingPrices' e legge il prezzo piu' alto (campo 'amount') tra i
-             prodotti che combaciano per model_number / pack_code.
-             (Mantiene anche il vecchio path JSON per retro-compatibilita'.)
+Architettura (ogni livello e' isolato per poterlo testare offline):
 
-  hareruya : (hare2buy.com) non espone JSON pubblico: si fa una ricerca per
-             model number e si estrae il prezzo di acquisto dalla pagina HTML.
-             I selettori vanno verificati/adeguati alla pagina reale: sono
-             centralizzati in HARERUYA_SELECTORS per modifica rapida.
+    fetch  -> HttpClient.get()         rete: timeout, retry+backoff, User-Agent, rate-limit
+    parse  -> parse_cardrush(text)     HTML/JSON grezzo -> lista di dict (NESSUNA rete)
+              parse_hareruya(html)
+    pick   -> pick_cardrush(items,..)  filtro model/pack + standard vs varianti -> (prezzo, stock)
+              pick_hareruya(items,..)
+
+Le funzioni pubbliche scrape_cardrush()/scrape_hareruya() restano invariate nella firma
+e nel comportamento: sono solo wrapper su fetch+parse+pick.
+
+Note sulle fonti (verificate su fixture reali, vedi tests/fixtures/):
+  cardrush : app Next.js. I dati sono nello <script id="__NEXT_DATA__"> in
+             props.pageProps.buyingPrices (lista di dict con 'amount',
+             'model_number' tipo '262/172', 'pack_code', 'extra_difference').
+             Mantiene anche il vecchio path JSON puro per retro-compatibilita'.
+  hareruya : hare2buy.com e' il braccio BUYBACK (買取) di Hareruya: il prezzo
+             mostrato (.selling_price/.price) e' l'OFFERTA DI ACQUISTO, non il
+             prezzo di vendita (nome del selettore fuorviante, valore corretto).
+             Ricerca per numero di collezione completo (es. '262/172'); i nomi
+             prodotto hanno forma  アルセウスVSTAR(UR){無}〈262/172〉[S12a][EX00944].
+
+LayoutError = la PAGINA c'e' ma la STRUTTURA attesa non c'e' piu' (es. sparito
+__NEXT_DATA__, spariti i contenitori prodotto): segnala un cambio di layout, da
+distinguere dal caso "pagina valida ma 0 risultati" (carta semplicemente assente).
 """
 import re
 import json
@@ -21,6 +34,9 @@ import urllib.parse as urlparse
 import requests
 from bs4 import BeautifulSoup
 
+# ----------------------------------------------------------------------
+# Costanti di rete
+# ----------------------------------------------------------------------
 HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                    "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -28,64 +44,133 @@ HEADERS = {
     "Accept-Language": "ja,en;q=0.8",
 }
 TIMEOUT = 20
+RETRIES = 3            # tentativi totali su errori transitori (5xx/429/timeout/rete)
+BACKOFF = 1.0          # secondi base del backoff esponenziale: BACKOFF * 2**tentativo
+RATE_LIMIT = 1.0       # pausa minima tra una richiesta e la successiva (cortesia)
+
+
+class LayoutError(Exception):
+    """La pagina e' raggiungibile ma non ha la struttura attesa (layout cambiato)."""
+
 
 # ----------------------------------------------------------------------
-# CARDRUSH
+# Livello FETCH: client HTTP centralizzato (timeout, retry, UA, rate-limit)
 # ----------------------------------------------------------------------
-def _extract_cardrush_items(resp):
-    """Normalizza la risposta cardrush in una lista di dict {amount, model_number, ...}.
+class HttpClient:
+    """Client HTTP riusabile. Centralizza cio' che prima era sparso:
+    User-Agent/headers, timeout, retry con backoff esponenziale, e il
+    rate-limiting di cortesia (prima fatto da polite_sleep in run.py).
+    """
+
+    # status che vale la pena ritentare (errori lato server / rate-limit)
+    _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+    def __init__(self, timeout=TIMEOUT, retries=RETRIES, backoff=BACKOFF,
+                 rate_limit=RATE_LIMIT, headers=None, session=None, sleep=time.sleep):
+        self.timeout = timeout
+        self.retries = max(1, retries)
+        self.backoff = backoff
+        self.rate_limit = rate_limit
+        self.headers = headers or HEADERS
+        self.session = session or requests.Session()
+        self._sleep = sleep            # iniettabile nei test (niente attese vere)
+        self._primed = False           # la prima richiesta non aspetta il rate-limit
+
+    def get(self, url):
+        """Ritorna una requests.Response con status 2xx, oppure solleva
+        requests.RequestException dopo aver esaurito i tentativi."""
+        if self._primed and self.rate_limit:
+            self._sleep(self.rate_limit)
+        self._primed = True
+
+        last_exc = None
+        for attempt in range(self.retries):
+            if attempt:
+                self._sleep(self.backoff * (2 ** (attempt - 1)))
+            try:
+                r = self.session.get(url, headers=self.headers, timeout=self.timeout)
+            except requests.RequestException as e:
+                last_exc = e
+                continue
+            if r.status_code in self._RETRYABLE_STATUS:
+                last_exc = requests.HTTPError(f"status {r.status_code}", response=r)
+                continue
+            r.raise_for_status()       # 4xx non-retryable -> eccezione
+            return r
+        raise last_exc if last_exc else requests.RequestException("richiesta fallita")
+
+
+_DEFAULT_CLIENT = None
+
+
+def _default_client():
+    global _DEFAULT_CLIENT
+    if _DEFAULT_CLIENT is None:
+        _DEFAULT_CLIENT = HttpClient()
+    return _DEFAULT_CLIENT
+
+
+# ----------------------------------------------------------------------
+# CARDRUSH - parse (offline) + pick
+# ----------------------------------------------------------------------
+def parse_cardrush(text: str) -> list:
+    """HTML/JSON grezzo di cardrush -> lista di item dict.
 
     Gestisce due formati:
-      - JSON puro (vecchio endpoint)               -> lista o {data/buying_prices/...}
-      - HTML Next.js (endpoint attuale)            -> <script id="__NEXT_DATA__">
-                                                       props.pageProps.buyingPrices
+      - JSON puro (vecchio endpoint)    -> lista o {buyingPrices|data|...}
+      - HTML Next.js (endpoint attuale) -> <script id="__NEXT_DATA__">
+                                           props.pageProps.buyingPrices
+
+    Ritorna [] se la pagina e' valida ma senza risultati (carta assente).
+    Solleva LayoutError se la struttura attesa non e' riconoscibile.
     """
-    # 1) tentativo JSON diretto (retro-compatibilita')
-    try:
-        data = resp.json()
-        items = data if isinstance(data, list) else (
-            data.get("buyingPrices") or data.get("data")
-            or data.get("buying_prices") or data.get("results") or [])
-        if items:
-            return items
-    except (ValueError, AttributeError):
-        pass
+    text = text or ""
+
+    # 1) JSON puro (retro-compatibilita' vecchio endpoint)
+    stripped = text.lstrip()
+    if stripped[:1] in ("{", "["):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            pass
+        else:
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                for key in ("buyingPrices", "data", "buying_prices", "results"):
+                    if key in data:
+                        return data[key] or []
+                raise LayoutError("JSON cardrush senza chiave prezzi nota")
 
     # 2) HTML Next.js: i dati sono nello script __NEXT_DATA__
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text, re.S)
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', text, re.S)
     if not m:
-        return []
+        raise LayoutError("cardrush: __NEXT_DATA__ non trovato (layout cambiato?)")
     try:
         nd = json.loads(m.group(1))
-    except ValueError:
-        return []
-    page = nd.get("props", {}).get("pageProps", {})
-    return page.get("buyingPrices") or page.get("data") or []
+    except ValueError as e:
+        raise LayoutError(f"cardrush: __NEXT_DATA__ non e' JSON valido: {e}")
+    page = nd.get("props", {}).get("pageProps")
+    if not isinstance(page, dict):
+        raise LayoutError("cardrush: props.pageProps assente (layout cambiato?)")
+    for key in ("buyingPrices", "data"):
+        if key in page:
+            return page[key] or []
+    raise LayoutError("cardrush: pageProps senza 'buyingPrices' (layout cambiato?)")
 
 
-def scrape_cardrush(url: str):
-    """Ritorna (buying_price:int|None, in_stock:bool). url = colonna E dell'Excel."""
-    if not url:
-        return None, False
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
-        r.raise_for_status()
-    except Exception as e:
-        print(f"  [cardrush] errore: {e}")
-        return None, False
+def pick_cardrush(items: list, want_model: str = "", want_pack: str = ""):
+    """Da una lista di item cardrush sceglie il buying price della carta STANDARD.
 
-    items = _extract_cardrush_items(r)
+    Filtra per model_number/pack_code (il server di solito filtra gia', ma ci
+    tuteliamo). Distingue la carta standard dalle varianti (errore di stampa,
+    ecc.) marcate con 'extra_difference' non vuoto e di solito piu' costose:
+    preferiamo la standard, le varianti solo se non c'e' nessuna standard.
 
-    # Filtri attesi dalla query (il server di solito filtra gia', ma ci tuteliamo
-    # da risultati di altri set/carte che condividono lo stesso model_number).
-    qs = urlparse.parse_qs(urlparse.urlparse(url).query)
-    want_model = (qs.get("model_number") or [""])[0].strip()
-    want_pack = (qs.get("pack_code") or [""])[0].strip()
-
-    # Raccogliamo i prezzi distinguendo la carta STANDARD dalle varianti
-    # (errore di stampa, ecc.): CardRush le marca con 'extra_difference' non
-    # vuoto (es. "※表面加工エラー") e spesso costano molto di piu'. Vogliamo il
-    # prezzo della carta normale, non della variante.
+    Ritorna (buying_price:int|None, in_stock:bool).
+    """
+    want_model = (want_model or "").strip()
+    want_pack = (want_pack or "").strip()
     standard, variant = [], []
     for it in items:
         if not isinstance(it, dict):
@@ -95,7 +180,7 @@ def scrape_cardrush(url: str):
             continue
         model = str(it.get("model_number", ""))
         pack = str(it.get("pack_code", ""))
-        # model_number puo' essere "114" oppure "114/083": confronta anche il prefisso
+        # model_number puo' essere "262" oppure "262/172": confronta anche il prefisso
         if want_model and not (model == want_model or model.split("/")[0] == want_model):
             continue
         if want_pack and pack and pack.lower() != want_pack.lower():
@@ -107,74 +192,105 @@ def scrape_cardrush(url: str):
         extra = (it.get("extra_difference") or "").strip()
         (variant if extra else standard).append(price)
 
-    # Preferiamo la carta standard; solo se non ce n'e' nessuna usiamo le varianti.
     chosen = standard or variant
     if not chosen:
         return None, False
-    return max(chosen), True   # buying price = offerta di acquisto piu' alta (carta standard)
+    return max(chosen), True   # offerta di acquisto piu' alta della carta standard
+
+
+def scrape_cardrush(url: str, client: "HttpClient | None" = None):
+    """Ritorna (buying_price:int|None, in_stock:bool). url = colonna E dell'Excel.
+
+    Errore di rete (dopo i retry) -> (None, False).
+    Cambio di layout -> LayoutError (propagata, cosi' run.py la conta a parte).
+    """
+    if not url:
+        return None, False
+    client = client or _default_client()
+    try:
+        r = client.get(url)
+    except requests.RequestException as e:
+        print(f"  [cardrush] errore rete: {e}")
+        return None, False
+
+    items = parse_cardrush(r.text)     # puo' sollevare LayoutError
+
+    qs = urlparse.parse_qs(urlparse.urlparse(url).query)
+    want_model = (qs.get("model_number") or [""])[0].strip()
+    want_pack = (qs.get("pack_code") or [""])[0].strip()
+    return pick_cardrush(items, want_model, want_pack)
 
 
 # ----------------------------------------------------------------------
-# HARERUYA (hare2buy.com)
+# HARERUYA (hare2buy.com) - parse (offline) + pick
 # ----------------------------------------------------------------------
-# La ricerca avviene su /product-list col parametro `keyword`. La query va
-# fatta col NUMERO DI COLLEZIONE COMPLETO (es. "114/083"): cercare solo "114"
-# restituisce centinaia di carte di set diversi. I nomi prodotto hanno forma
-#   メガゲッコウガex(SAR){水}〈114/083〉[M4][EX02235]
-# quindi si filtra per numero 〈###/###〉 ed eventualmente per pack [M4].
 HARERUYA_SEARCH = "https://www.hare2buy.com/product-list?keyword={q}"
 HARERUYA_SELECTORS = {
-    "item":  ".list_item_cell, [class*=list_item_]",   # contenitore prodotto
-    "name":  ".goods_name, .item_name",                # nome carta
-    "price": ".selling_price, .price",                 # cella prezzo (buying price)
+    "item":   ".list_item_cell, [class*=list_item_]",   # contenitore prodotto
+    "name":   ".goods_name, .item_name",                # nome carta
+    "price":  ".selling_price, .price",                 # cella prezzo (= buyback)
+    # anchor strutturali della pagina-risultati: se MANCANO tutti, il layout e'
+    # cambiato; se ci sono ma senza item, e' una ricerca a 0 risultati.
+    "anchor": ".itemlist, .itemlist_contents, .item_count, .all_items",
 }
-# numero di collezione tra parentesi angolari giapponesi o ascii: 〈114/083〉
+# numero di collezione tra parentesi angolari giapponesi o ascii: 〈262/172〉
 _COLLECTOR_RE = re.compile(r"[〈<]\s*(\d+)\s*/\s*(\d+)\s*[〉>]")
-# tag del set tra parentesi quadre: [M4], [SV4a] ...
+# tag del set tra parentesi quadre: [S12a], [M4] ...
 _PACK_RE = re.compile(r"\[([A-Za-z0-9]+)\]")
+
 
 def _to_int_price(text: str):
     m = re.search(r"[\d,]+", text or "")
     return int(m.group().replace(",", "")) if m else None
 
+
 def _collector_number(text: str):
-    """Estrae '114/083' dal codice carta (es. 'M4 114/083' o '114')."""
+    """Estrae '262/172' da un codice carta (es. 'S12a 262/172' o '262/172')."""
     m = re.search(r"(\d+)\s*/\s*(\d+)", text or "")
     return f"{m.group(1)}/{m.group(2)}" if m else None
 
-def scrape_hareruya(card_code: str, pack_code: str | None = None,
-                    model_number: str | None = None):
-    """Ritorna (buying_price:int|None, in_stock:bool).
 
-    card_code   : codice completo dell'Excel, es. 'M4 114/083' (per la ricerca
-                  serve il numero di collezione '114/083').
-    pack_code   : sigla del set, es. 'M4' (disambigua numeri uguali in set diversi).
-    model_number: fallback se card_code non contiene un numero ###/###.
+def parse_hareruya(html: str) -> list:
+    """HTML grezzo di hare2buy -> lista di {'name': str, 'price': int|None}.
+
+    Ritorna [] se la pagina-risultati e' valida ma vuota (0 risultati).
+    Solleva LayoutError se mancano sia gli item sia gli anchor strutturali
+    (= non e' piu' la pagina-risultati che ci aspettiamo).
     """
-    full = _collector_number(card_code) or _collector_number(model_number or "")
-    query = full or (model_number or "")
-    if not query:
-        return None, False
-    try:
-        r = requests.get(HARERUYA_SEARCH.format(q=requests.utils.quote(query)),
-                         headers=HEADERS, timeout=TIMEOUT)
-        r.raise_for_status()
-    except Exception as e:
-        print(f"  [hareruya] errore: {e}")
-        return None, False
+    soup = BeautifulSoup(html or "", "html.parser")
+    cells = soup.select(HARERUYA_SELECTORS["item"])
+    if not cells:
+        # Nessun item: distinguo "0 risultati" da "layout cambiato" guardando
+        # se esiste ancora lo scheletro della pagina-risultati.
+        if not soup.select_one(HARERUYA_SELECTORS["anchor"]):
+            raise LayoutError("hareruya: nessun item ne' anchor di lista (layout cambiato?)")
+        return []
 
-    target_num = full.split("/")[0].lstrip("0") if full else None
-    soup = BeautifulSoup(r.text, "html.parser")
-    prices = []
-    for it in soup.select(HARERUYA_SELECTORS["item"]):
+    out = []
+    for it in cells:
         name_el = it.select_one(HARERUYA_SELECTORS["name"])
         price_el = it.select_one(HARERUYA_SELECTORS["price"])
         if not (name_el and price_el):
             continue
-        name = name_el.get_text(strip=True)
+        out.append({
+            "name": name_el.get_text(strip=True),
+            "price": _to_int_price(price_el.get_text()),
+        })
+    return out
 
-        # filtra per numero di collezione, cosi' si escludono sia il "buyback in
-        # blocco" (senza numero) sia carte omonime di altri set.
+
+def pick_hareruya(items: list, full_number: str = None, pack_code: str = None):
+    """Da una lista di {'name','price'} sceglie il buyback della carta giusta.
+
+    Filtra per numero di collezione 〈###/###〉 (esclude il buyback in blocco
+    senza numero e le carte omonime di altri set) ed eventualmente per [pack].
+
+    Ritorna (buying_price:int|None, in_stock:bool).
+    """
+    target_num = full_number.split("/")[0].lstrip("0") if full_number else None
+    prices = []
+    for it in items:
+        name = it.get("name", "")
         if target_num is not None:
             cm = _COLLECTOR_RE.search(name)
             if not cm or cm.group(1).lstrip("0") != target_num:
@@ -183,8 +299,7 @@ def scrape_hareruya(card_code: str, pack_code: str | None = None,
                 pm = _PACK_RE.search(name)
                 if pm and pm.group(1).lower() != pack_code.lower():
                     continue
-
-        p = _to_int_price(price_el.get_text())
+        p = it.get("price")
         if p:
             prices.append(p)
     if not prices:
@@ -192,6 +307,33 @@ def scrape_hareruya(card_code: str, pack_code: str | None = None,
     return max(prices), True
 
 
+def scrape_hareruya(card_code: str, pack_code: str = None,
+                    model_number: str = None, client: "HttpClient | None" = None):
+    """Ritorna (buying_price:int|None, in_stock:bool).
+
+    card_code   : codice completo dell'Excel, es. 'S12a 262/172'.
+    pack_code   : sigla del set, es. 'S12a' (disambigua numeri uguali in set diversi).
+    model_number: fallback se card_code non contiene un numero ###/###.
+
+    Errore di rete (dopo i retry) -> (None, False).
+    Cambio di layout -> LayoutError (propagata).
+    """
+    full = _collector_number(card_code) or _collector_number(model_number or "")
+    query = full or (model_number or "")
+    if not query:
+        return None, False
+    client = client or _default_client()
+    url = HARERUYA_SEARCH.format(q=requests.utils.quote(query))
+    try:
+        r = client.get(url)
+    except requests.RequestException as e:
+        print(f"  [hareruya] errore rete: {e}")
+        return None, False
+
+    items = parse_hareruya(r.text)     # puo' sollevare LayoutError
+    return pick_hareruya(items, full, pack_code)
+
+
 def polite_sleep(sec=1.0):
-    """Pausa tra le richieste per non sovraccaricare i siti."""
+    """Deprecata: il rate-limiting e' ora in HttpClient. Mantenuta per compat."""
     time.sleep(sec)
