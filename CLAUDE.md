@@ -92,14 +92,15 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   offline; `tests/fixtures/` = pagine reali CR+HR
 - `docs/ADAPTERS.md` — come scrivere/registrare un nuovo `SourceAdapter`
 - `dashboard/index.html` — dashboard CANONICA (servita da Cloudflare Pages). Vanilla JS +
-  Chart.js (solo per il grafico storico). UNICA fonte dati via `fetch` di
-  `data/{buylist,history,setindex}.json`, nessun dato inline. Stile Space Grotesk/JetBrains
-  Mono, KPI + chip per set + tabella per set; click su una carta → modal di dettaglio
-  (immagine, confronto negozi, grafico storico del buyback da `history.json`); 📈 per
-  set/globale → indice trend da `setindex.json`. Responsive mobile. Lettura TOLLERANTE a due
-  schemi: piatto (`cardrush_price`) e multi-fonte (`prices{src:{price,comm,stock}}`), così
-  passa automaticamente al multi-fonte quando il DB sarà migrato a v2. `dashboard/app.py` =
-  server Flask alternativo (legge il DB direttamente), non necessario per la dashboard statica.
+  Chart.js (solo per i grafici). UNICA fonte dati via `fetch` di
+  `data/{buylist,history,setindex}.json`, nessun dato inline. Tema scuro, layout a GRIGLIA DI
+  CARD (immagine in evidenza, per ogni carta i prezzi CR/HR/YT con barra di peso e totali per
+  set); ricerca + filtro per set; click su una card → modal con grafico storico del buyback da
+  `history.json`; 📈 per set/globale → indice trend da `setindex.json` (toggle ¥ / indice 100).
+  Responsive mobile (griglia a 2 colonne garantite sui telefoni). Lettura TOLLERANTE a due
+  schemi: piatto (`cardrush_price`) e multi-fonte (`prices{src:{price,stock}}`), così passa
+  automaticamente al multi-fonte quando il DB sarà migrato a v2. `dashboard/app.py` = server
+  Flask alternativo (legge il DB direttamente), non necessario per la dashboard statica.
 
 ## Comandi
 ```bash
@@ -186,10 +187,10 @@ con stato (aggiornalo a fine fase):
 - [~] Fase 4 — UX (in corso)
       Dashboard unificata su `dashboard/index.html`: rimossa la doppia fonte (niente più
       `const DATA` inline né il vecchio `dashboard.html`), tutto via `fetch` di
-      `data/{buylist,history,setindex}.json` (unica fonte di verità). Aggiunta la VISTA DI
-      DETTAGLIO per carta (click su riga → modal con immagine, confronto negozi e grafico
-      storico del buyback da `history.json`), indice trend per set/globale da `setindex.json`,
-      layout responsive mobile. Stile invariato (Space Grotesk/JetBrains Mono, KPI, chip per set).
+      `data/{buylist,history,setindex}.json` (unica fonte di verità). Layout a GRIGLIA DI CARD
+      con immagine (preferito), prezzi CR/HR con barra di peso e totali per set; VISTA DI
+      DETTAGLIO per carta (click → modal con grafico storico del buyback da `history.json`);
+      indice trend per set/globale da `setindex.json`; layout responsive mobile.
       ⚠️ Resta: la dashboard non consuma ancora `movers.json` (segnali spread/movers, Fase 3.2);
       passerà al multi-fonte (One Piece/YGO) automaticamente quando il DB reale sarà migrato a v2.
 - [ ] Fase 5 — scala / ops
