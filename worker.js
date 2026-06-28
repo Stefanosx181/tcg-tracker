@@ -45,7 +45,19 @@ export default {
       return json({ ok: false, error: `GitHub ${gh.status}: ${detail}` }, 502);
     }
 
-    return env.ASSETS.fetch(request);
+    // La pagina e i JSON dei dati cambiano ad ogni scrape ma hanno URL fisso:
+    // senza questo, browser/CDN servono versioni VECCHIE (modifiche "non visibili").
+    // Le immagini restano cacheabili (hanno nomi nuovi quando cambiano).
+    const res = await env.ASSETS.fetch(request);
+    const p = url.pathname;
+    const noCache = p === "/" || p.endsWith(".html") ||
+                    (p.startsWith("/data/") && p.endsWith(".json"));
+    if (noCache) {
+      const r = new Response(res.body, res);
+      r.headers.set("Cache-Control", "no-cache, must-revalidate");
+      return r;
+    }
+    return res;
   },
 };
 
