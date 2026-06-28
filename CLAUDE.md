@@ -45,8 +45,9 @@ ufficiale che loro si aspettano di vedere.
 
 ```
 Excel (seed) → db/ SQL → tcg_tracker.db (SQLite)
-   → src/scrapers.py  (CardRush via __NEXT_DATA__ JSON, Hareruya via selettori HTML)
-   → src/run.py       (orchestratore: scrape + salva storico + export)
+   → src/scrapers.py  (livello basso: HttpClient + parse_* + LayoutError)
+   → src/adapters.py  (SourceAdapter per fonte: build_query/fetch/parse→Offer; registry ADAPTERS)
+   → src/run.py       (orchestratore: cicla sul registry + salva storico + export)
    → src/database.py  (accesso DB, save_price con carry-forward, export_web → JSON)
    → dashboard/data/*.json (buylist.json, history.json, setindex.json)
    → dashboard/ (statica, Cloudflare Pages)
@@ -55,20 +56,24 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 ```
 
 ## File chiave
-- `src/scrapers.py` — scraping a 3 livelli testabili: `fetch` (`HttpClient`: timeout,
-  retry+backoff, User-Agent, rate-limit) → `parse_cardrush`/`parse_hareruya` (HTML/JSON
-  grezzo → lista, offline) → `pick_cardrush`/`pick_hareruya` (filtro + scelta prezzo).
-  `LayoutError` = struttura pagina cambiata (≠ "0 risultati"). Selettori in `HARERUYA_SELECTORS`.
+- `src/scrapers.py` — livello basso testabile: `fetch` (`HttpClient`: timeout, retry+backoff,
+  User-Agent, rate-limit) + `parse_cardrush`/`parse_hareruya` (HTML/JSON grezzo → lista, offline)
+  + helper. `LayoutError` = struttura pagina cambiata (≠ "0 risultati"). Selettori in `HARERUYA_SELECTORS`.
+- `src/adapters.py` — interfaccia `SourceAdapter` (`build_query`/`fetch`/`parse`→`Offer`, +
+  `select`/`scrape` condivisi) e i due adapter `CardRushAdapter`/`HareruyaAdapter`; registry
+  `ADAPTERS`. Aggiungere una fonte = aggiungere un adapter qui (vedi `docs/ADAPTERS.md`).
 - `src/database.py` — `save_price` (carry-forward), `export_web` (genera i JSON + indice set)
-- `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; usa un solo
-  `HttpClient` condiviso e conta i `LayoutError` per l'allarme rottura per-fonte.
+- `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; cicla sul registry
+  `ADAPTERS` (no fonti hard-coded), `HttpClient` condiviso, conta i `LayoutError` per l'allarme per-fonte.
 - `src/init_db.py` — crea/aggiorna il DB (idempotente): bootstrap v1 dal seed → migra a v2;
   un DB v1 esistente viene aggiornato a v2 in-place (storico preservato). `--force` = da zero.
 - `db/schema_sqlite.sql` — **schema corrente v2 (multi-gioco, game-agnostic)**; viste
   `v_latest_price`/`v_buylist` con alias ai nomi v1 → contratto-output invariato.
 - `db/schema_v1_sqlite.sql` — schema v1 (Pokémon), solo per il bootstrap dal seed.
 - `db/migrate_001_multigame.py` — migrazione v1→v2 (id preservati, pre-check collisioni/sorgenti).
-- `tests/test_scrapers.py`, `tests/test_migration.py` — test pytest offline; `tests/fixtures/` = pagine reali CR+HR
+- `tests/test_scrapers.py`, `tests/test_migration.py`, `tests/test_adapters.py` — test pytest
+  offline; `tests/fixtures/` = pagine reali CR+HR
+- `docs/ADAPTERS.md` — come scrivere/registrare un nuovo `SourceAdapter`
 - `dashboard/dashboard.html` — dashboard (ATTENZIONE: dati inline stale, vedi sotto)
 
 ## Comandi

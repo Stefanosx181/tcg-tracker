@@ -23,6 +23,7 @@ import argparse
 sys.path.insert(0, os.path.dirname(__file__))
 import database as db
 import scrapers as sc
+import adapters as ad
 
 HERE = os.path.dirname(__file__)
 DATA_DIR = os.path.join(HERE, "..", "dashboard", "data")
@@ -31,9 +32,10 @@ LEGACY_JSON = os.path.join(HERE, "..", "dashboard", "buylist_live.json")
 
 def main():
     ap = argparse.ArgumentParser(description="TCG Tracker - scraping buying prices")
+    sources = [a.source_code for a in ad.ADAPTERS]
     ap.add_argument("--set", help="filtra per pack_code, es. S12A")
     ap.add_argument("--limit", type=int, help="max carte (test)")
-    ap.add_argument("--only", choices=["cardrush", "hareruya"], help="un solo sito")
+    ap.add_argument("--only", choices=sources, help="una sola fonte")
     ap.add_argument("--sleep", type=float, default=1.0, help="pausa secondi tra richieste")
     args = ap.parse_args()
 
@@ -52,51 +54,41 @@ def main():
     # User-Agent e rate-limiting (la pausa tra richieste e' --sleep).
     client = sc.HttpClient(rate_limit=args.sleep)
 
+    # Fonti dal registry di adapter (filtrate da --only). Aggiungere una fonte
+    # = aggiungere un adapter in adapters.ADAPTERS: qui non si tocca nulla.
+    adapters = ad.get_adapters(args.only)
+
     print(f"Carte da elaborare: {len(cards)}\n")
     # contatori per fonte: servono a capire se un sito ha smesso di rispondere
-    tried = {"cardrush": 0, "hareruya": 0}
-    found = {"cardrush": 0, "hareruya": 0}
+    tried = {a.source_code: 0 for a in adapters}
+    found = {a.source_code: 0 for a in adapters}
     # errori di LAYOUT (struttura della pagina cambiata): distinti dal semplice
     # "carta non trovata", servono per un allarme piu' fine (vedi sotto).
-    layout_err = {"cardrush": 0, "hareruya": 0}
-
-    def _scrape(src, fn):
-        """Esegue lo scrape di una fonte gestendo il LayoutError separatamente.
-        Ritorna (price, stock); su layout cambiato ritorna (None, False) ma
-        incrementa layout_err[src]."""
-        try:
-            return fn()
-        except sc.LayoutError as e:
-            layout_err[src] += 1
-            print(f"    {src} : LAYOUT? {e}")
-            return None, False
+    layout_err = {a.source_code: 0 for a in adapters}
 
     for i, c in enumerate(cards, 1):
         print(f"[{i}/{len(cards)}] {c['card_code']}  ({c['pack_code']})")
-
-        if args.only != "hareruya":
-            price, stock = _scrape("cardrush",
-                lambda: sc.scrape_cardrush(c["cardrush_url"], client=client))
-            db.save_price(conn, c["id"], "cardrush", price, stock)
-            tried["cardrush"] += 1
-            found["cardrush"] += price is not None
-            print(f"    cardrush : {price if price is not None else '—'}")
-
-        if args.only != "cardrush":
-            price, stock = _scrape("hareruya",
-                lambda: sc.scrape_hareruya(c["card_code"], c["pack_code"],
-                                           c["model_number"], client=client))
-            db.save_price(conn, c["id"], "hareruya", price, stock)
-            tried["hareruya"] += 1
-            found["hareruya"] += price is not None
-            print(f"    hareruya : {price if price is not None else '—'}")
+        for a in adapters:
+            src = a.source_code
+            try:
+                offer = a.scrape(c, client)         # Offer | None
+            except sc.LayoutError as e:
+                layout_err[src] += 1
+                offer = None
+                print(f"    {src} : LAYOUT? {e}")
+            price = offer.price if offer else None
+            stock = offer.in_stock if offer else False
+            db.save_price(conn, c["id"], src, price, stock)
+            tried[src] += 1
+            found[src] += price is not None
+            print(f"    {src} : {price if price is not None else '—'}")
 
     n = db.export_web(conn, DATA_DIR)
     db.export_buylist_json(conn, LEGACY_JSON)   # retro-compatibilita' standalone
     conn.close()
 
     print(f"\nFatto. {n} righe esportate in dashboard/data/")
-    for src in ("cardrush", "hareruya"):
+    for src in tried:
         if tried[src]:
             le = f", layout? {layout_err[src]}" if layout_err[src] else ""
             print(f"  {src}: {found[src]}/{tried[src]} con prezzo{le}")
@@ -109,7 +101,7 @@ def main():
     # fallisce e arriva la notifica.
     LAYOUT_FRACTION = 0.30   # >30% delle pagine di una fonte con layout rotto
     broken = []
-    for s in ("cardrush", "hareruya"):
+    for s in tried:
         if not tried[s]:
             continue
         if found[s] == 0:
