@@ -188,8 +188,12 @@ const SRC_META = {
   hareruya:{tag:"HR",cls:"hr",name:"Hareruya",color:"#ff8a5a"},
   yuyutei:{tag:"YT",cls:"yt",name:"Yuyu-tei",color:"#c08af5"},
 };
-const priceOf = (c,s)=> (c.prices && c.prices[s]) ? c.prices[s].price : null;
-const stockOf = (c,s)=> (c.prices && c.prices[s]) ? c.prices[s].stock : null;
+// Tollerante a DUE schemi: multi-fonte c.prices{src:{price,stock}} (dati deployati su
+// Cloudflare) e legacy piatto c.cardrush_price/c.cardrush_stock (snapshot locale finche'
+// il DB e' v1). Su Cloudflare legge prices{} -> comportamento INVARIATO; in locale mostra
+// i prezzi dai campi piatti -> localhost identico al sito.
+const priceOf = (c,s)=> (c.prices && c.prices[s]) ? c.prices[s].price : (c[s+"_price"] ?? null);
+const stockOf = (c,s)=> (c.prices && c.prices[s]) ? c.prices[s].stock : (c[s+"_stock"] ?? null);
 const setSources = s =>{ const have=new Set();
   s.cards.forEach(c=>SRC_ORDER.forEach(x=>{ if(c.prices&&c.prices[x]) have.add(x); }));
   return SRC_ORDER.filter(x=>have.has(x)); };

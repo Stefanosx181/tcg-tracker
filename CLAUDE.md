@@ -91,7 +91,14 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 - `tests/test_scrapers.py`, `tests/test_migration.py`, `tests/test_adapters.py` — test pytest
   offline; `tests/fixtures/` = pagine reali CR+HR
 - `docs/ADAPTERS.md` — come scrivere/registrare un nuovo `SourceAdapter`
-- `dashboard/dashboard.html` — dashboard (ATTENZIONE: dati inline stale, vedi sotto)
+- `dashboard/index.html` — **UNICA UI** (la padrona), servita da Cloudflare (Worker + asset
+  statici, vedi `wrangler.jsonc`/`worker.js`). Vanilla JS + Chart.js; layout a griglia di card
+  con immagine, prezzi CR/HR/YT, totali per set, modal con grafico storico; dati via `fetch`
+  di `data/*.json`. NIENTE dati inline.
+- `dashboard/app.py` — anteprima LOCALE che serve gli STESSI file statici di Cloudflare
+  (`index.html`+`data/`+`images/`), così localhost è identico al sito. Non c'è un secondo
+  template. `/api/trigger` in locale è un no-op 501 (esiste solo sul Worker). Per fedeltà
+  totale: `npx wrangler dev`.
 
 ## Comandi
 ```bash
@@ -130,9 +137,12 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - Dove esistono **API/dataset ufficiali**, preferiscili allo scraping (più stabili, meno ToS).
 
 ## Trappole note (già individuate — non reintrodurle)
-- **Dashboard a doppia fonte**: `dashboard/dashboard.html` ha i dati INLINE (`const DATA=[…]`,
-  snapshot stale) E separatamente in `dashboard/data/buylist.json`. `history.json` e le
-  immagini `.webp` esistono ma NON sono usate. Va unificato su un'unica fonte via fetch.
+- **DB reale ancora v1**: `tcg_tracker.db` non è migrato a v2 (manca `tcg_game`/`source_code`),
+  quindi `export_web` (codice v2) NON gira sul DB reale: i JSON in `dashboard/data/` sono
+  prodotti dal vecchio export (schema PIATTO, valori reali). La migrazione avverrà alla prossima
+  `init_db` (auto-upgrade v1→v2, storico preservato). `index.html` legge `prices{}` con
+  FALLBACK ai campi piatti (`cardrush_price`…): su Cloudflare usa `prices{}`, in locale (dati
+  v1 piatti) mostra comunque i prezzi → localhost identico al sito anche prima della migrazione.
 - **best_price = max()**: può catturare una variante/error card invece della standard. Ora il
   flag `is_outlier` (vs mediana storica) la segnala e la vista normalizzata la esclude
   dall'indice, ma la SELEZIONE del best_price è ancora `max()`: migliorabile.
