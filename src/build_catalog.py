@@ -174,9 +174,9 @@ def _short_rarity(rar):
     return _RARITY_SHORT.get(rar.strip(), rar.strip())
 
 
-def _pick_rarity(items, number, variant):
-    """Dagli item CardRush sceglie la rarita' della carta (number+variant).
-    Preferisce l'item con/ senza marcatore パラレル coerente con la variante."""
+def _pick_item(items, number, variant):
+    """Dagli item CardRush sceglie quello della carta (number+variant).
+    Preferisce l'item con/senza marcatore パラレル coerente con la variante."""
     is_par_target = (variant == "parallel")
     matched = []
     for it in items:
@@ -186,38 +186,59 @@ def _pick_rarity(items, number, variant):
         if not (model == number or model.split("/")[0] == number):
             continue
         is_par = "パラレル" in (it.get("extra_difference") or "")
-        (matched if is_par == is_par_target else []).append(it)
+        if is_par == is_par_target:
+            matched.append(it)
     pool = matched or [it for it in items if isinstance(it, dict)
                        and str(it.get("model_number", "")) == number]
-    for it in pool:
-        if it.get("rarity"):
-            return it.get("rarity")
-    return None
+    return pool[0] if pool else None
 
 
-def enrich_rarity(conn, game_code, set_code, *, client=None):
-    """Riempie tcg_card.rarity per le carte del set leggendola da CardRush
-    (la fonte espone `rarity`). Ritorna (aggiornate, totali)."""
+def _pick_rarity(items, number, variant):
+    it = _pick_item(items, number, variant)
+    return it.get("rarity") if it else None
+
+
+def _cardrush_image(item):
+    """URL immagine HI-RES (~564x800) dell'item CardRush (ocha_product.image_source)."""
+    op = item.get("ocha_product") if item else None
+    return op.get("image_source") if isinstance(op, dict) else None
+
+
+def enrich_from_cardrush(conn, game_code, set_code, *, client=None, images_dir=None):
+    """Da CardRush (una fetch per carta) riempie la RARITÀ e, se images_dir,
+    scarica l'IMMAGINE hi-res (~564x800, come i Pokemon) sostituendo quella
+    piccola di Yuyu-tei (100x140). Ritorna (rarità, immagini, totali)."""
+    db.ensure_image_column(conn)
     client = client or sc._default_client()
     rows = conn.execute("""SELECT c.id, c.number, c.variant, c.cardrush_url
                            FROM tcg_card c JOIN tcg_set s ON s.id = c.set_id
                            WHERE s.game_code=? AND s.set_code=?""",
                         (game_code, set_code)).fetchall()
-    updated = 0
+    rar_n = img_n = 0
     for cid, number, variant, url in rows:
         if not url:
             continue
         try:
             items = sc.parse_cardrush(client.get(url).text)
         except Exception as e:
-            print(f"    rarity KO {number}: {e}")
+            print(f"    cardrush KO {number}: {e}")
             continue
-        rar = _short_rarity(_pick_rarity(items, number, variant or ""))
+        it = _pick_item(items, number, variant or "")
+        if not it:
+            continue
+        rar = _short_rarity(it.get("rarity"))
         if rar:
             conn.execute("UPDATE tcg_card SET rarity=? WHERE id=?", (rar, cid))
-            updated += 1
+            rar_n += 1
+        if images_dir:
+            src = _cardrush_image(it)
+            if src:
+                local = _download_image(src, images_dir, number, variant, client)
+                if local:
+                    conn.execute("UPDATE tcg_card SET image_url=? WHERE id=?", (local, cid))
+                    img_n += 1
     conn.commit()
-    return updated, len(rows)
+    return rar_n, img_n, len(rows)
 
 
 def main(argv):
@@ -229,7 +250,7 @@ def main(argv):
     ap.add_argument("--db", help="percorso DB (default: il DB reale)")
     ap.add_argument("--order", type=int, default=100, help="display_order del set")
     ap.add_argument("--images", metavar="DIR", nargs="?", const=_DEFAULT_IMAGES,
-                    help="scarica le immagini carta in DIR (default dashboard/images)")
+                    help="scarica le immagini HI-RES da CardRush in DIR (default dashboard/images)")
     ap.add_argument("--rarity", action="store_true",
                     help="riempi la rarita' delle carte del set da CardRush")
     args = ap.parse_args(argv)
@@ -237,15 +258,18 @@ def main(argv):
     conn = db.get_conn() if not args.db else __import__("sqlite3").connect(args.db)
     try:
         html = open(args.html, encoding="utf-8").read() if args.html else None
-        ins, skip, rows, imgs = harvest(conn, args.game, args.set_code, args.set_name,
-                                        html=html, display_order=args.order,
-                                        images_dir=args.images)
-        extra = f", {imgs} immagini" if args.images else ""
+        ins, skip, rows, _ = harvest(conn, args.game, args.set_code, args.set_name,
+                                     html=html, display_order=args.order)
         print(f"{args.game}/{args.set_code}: pagina {rows} righe -> "
-              f"{ins} carte nuove, {skip} gia' presenti{extra}.")
-        if args.rarity:
-            up, tot = enrich_rarity(conn, args.game, args.set_code)
-            print(f"  rarita': {up}/{tot} carte aggiornate da CardRush.")
+              f"{ins} carte nuove, {skip} gia' presenti.")
+        # rarita' e/o immagini hi-res da CardRush (una sola fetch per carta)
+        if args.images or args.rarity:
+            rar_n, img_n, tot = enrich_from_cardrush(
+                conn, args.game, args.set_code, images_dir=args.images or None)
+            msg = f"  CardRush: rarità {rar_n}/{tot}"
+            if args.images:
+                msg += f", immagini {img_n}/{tot}"
+            print(msg + ".")
     finally:
         conn.close()
     return 0

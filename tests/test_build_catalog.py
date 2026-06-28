@@ -88,6 +88,31 @@ def test_download_image_offline(tmp_path):
     assert url.startswith("images/") and url.endswith(".jpg")
 
 
+def test_enrich_from_cardrush_offline(tmp_path):
+    # da CardRush (fixture, client finto) riempie rarità + immagine HI-RES webp
+    CR = (ROOT / "tests" / "fixtures" / "cardrush_op_OP01-001.html").read_text(encoding="utf-8")
+    class Resp:
+        def __init__(self, text=None, content=None): self.text = text; self.content = content
+    class Client:
+        def get(self, url):
+            if "files.cardrush" in url or url.endswith(".webp"):
+                return Resp(content=b"webp-bytes")
+            return Resp(text=CR)
+    conn = _fresh_v2()
+    conn.execute("INSERT INTO tcg_game VALUES('onepiece','One Piece')")
+    conn.execute("INSERT INTO tcg_set (id,game_code,set_code,set_name,display_order)"
+                 " VALUES (1,'onepiece','OP01','ROMANCE DAWN',1)")
+    conn.execute("INSERT INTO tcg_card (set_id,number,variant,name,cardrush_url)"
+                 " VALUES (1,'OP01-001','','Zoro','http://x?model_number=OP01-001')")
+    conn.commit()
+    rar_n, img_n, tot = bc.enrich_from_cardrush(conn, "onepiece", "OP01",
+                                                client=Client(), images_dir=str(tmp_path))
+    assert rar_n == 1 and img_n == 1 and tot == 1
+    rarity, image = conn.execute(
+        "SELECT rarity, image_url FROM tcg_card WHERE number='OP01-001'").fetchone()
+    assert rarity == "L" and image.endswith(".webp") and image.startswith("images/")
+
+
 def test_pick_rarity_offline():
     # dalla pagina CardRush OP01-001 (fixture) ricava la rarita' della carta
     import scrapers as sc
