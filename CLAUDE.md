@@ -52,7 +52,7 @@ Excel (seed) → db/ SQL → tcg_tracker.db (SQLite)
    → src/run.py       (orchestratore: per ogni carta cicla gli adapter del suo gioco; --game/--set)
    → src/database.py  (accesso DB, save_price con carry-forward, export_web → JSON multi-fonte)
    → dashboard/data/*.json (buylist.json, history.json, setindex.json, movers.json)
-   → dashboard/ (statica, Cloudflare Pages)
+   → dashboard/index.html (statica, vanilla+Chart.js, fetch dei JSON; Cloudflare Pages)
 GitHub Actions (.github/workflows/scrape.yml, cron settimanale) → commit DB+JSON
 Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 ```
@@ -91,7 +91,15 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 - `tests/test_scrapers.py`, `tests/test_migration.py`, `tests/test_adapters.py` — test pytest
   offline; `tests/fixtures/` = pagine reali CR+HR
 - `docs/ADAPTERS.md` — come scrivere/registrare un nuovo `SourceAdapter`
-- `dashboard/dashboard.html` — dashboard (ATTENZIONE: dati inline stale, vedi sotto)
+- `dashboard/index.html` — dashboard CANONICA (servita da Cloudflare Pages). Vanilla JS +
+  Chart.js (solo per il grafico storico). UNICA fonte dati via `fetch` di
+  `data/{buylist,history,setindex}.json`, nessun dato inline. Stile Space Grotesk/JetBrains
+  Mono, KPI + chip per set + tabella per set; click su una carta → modal di dettaglio
+  (immagine, confronto negozi, grafico storico del buyback da `history.json`); 📈 per
+  set/globale → indice trend da `setindex.json`. Responsive mobile. Lettura TOLLERANTE a due
+  schemi: piatto (`cardrush_price`) e multi-fonte (`prices{src:{price,comm,stock}}`), così
+  passa automaticamente al multi-fonte quando il DB sarà migrato a v2. `dashboard/app.py` =
+  server Flask alternativo (legge il DB direttamente), non necessario per la dashboard statica.
 
 ## Comandi
 ```bash
@@ -130,9 +138,11 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - Dove esistono **API/dataset ufficiali**, preferiscili allo scraping (più stabili, meno ToS).
 
 ## Trappole note (già individuate — non reintrodurle)
-- **Dashboard a doppia fonte**: `dashboard/dashboard.html` ha i dati INLINE (`const DATA=[…]`,
-  snapshot stale) E separatamente in `dashboard/data/buylist.json`. `history.json` e le
-  immagini `.webp` esistono ma NON sono usate. Va unificato su un'unica fonte via fetch.
+- **DB reale ancora v1**: `tcg_tracker.db` non è migrato a v2 (manca `tcg_game`/`source_code`),
+  quindi `export_web` (codice attuale, v2) NON gira sul DB reale: i JSON in `dashboard/data/`
+  sono stati prodotti dal vecchio export (schema PIATTO, valori reali e attuali). La migrazione
+  avverrà alla prossima `init_db` (auto-upgrade v1→v2, storico preservato). La dashboard tollera
+  entrambi gli schemi, quindi continuerà a funzionare prima e dopo la migrazione.
 - **best_price = max()**: può catturare una variante/error card invece della standard. Ora il
   flag `is_outlier` (vs mediana storica) la segnala e la vista normalizzata la esclude
   dall'indice, ma la SELEZIONE del best_price è ancora `max()`: migliorabile.
@@ -173,7 +183,15 @@ con stato (aggiornalo a fine fase):
       ⚠️ Resta: la SELEZIONE del best_price è ancora `max()` (il flag outlier la segnala ma non
       la corregge); disambiguazione fine rarità/stampa YGO (vedi Fase 2). La dashboard non
       consuma ancora `movers.json` (lavoro UX, Fase 4).
-- [ ] Fase 4 — UX
+- [~] Fase 4 — UX (in corso)
+      Dashboard unificata su `dashboard/index.html`: rimossa la doppia fonte (niente più
+      `const DATA` inline né il vecchio `dashboard.html`), tutto via `fetch` di
+      `data/{buylist,history,setindex}.json` (unica fonte di verità). Aggiunta la VISTA DI
+      DETTAGLIO per carta (click su riga → modal con immagine, confronto negozi e grafico
+      storico del buyback da `history.json`), indice trend per set/globale da `setindex.json`,
+      layout responsive mobile. Stile invariato (Space Grotesk/JetBrains Mono, KPI, chip per set).
+      ⚠️ Resta: la dashboard non consuma ancora `movers.json` (segnali spread/movers, Fase 3.2);
+      passerà al multi-fonte (One Piece/YGO) automaticamente quando il DB reale sarà migrato a v2.
 - [ ] Fase 5 — scala / ops
 
 Non aggiungere giochi prima dello schema multi-gioco (Fase 1).

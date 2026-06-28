@@ -5,379 +5,493 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>TCG Tracker — Buying Prices</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
-  :root{ --bg:#0f1320; --card:#161b2c; --card2:#1b2236; --line:#27304a; --txt:#e6e9f2;
-         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --yt:#c08af5; --best:#3ddc97; --stale:#d9b36b; }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
-       background:var(--bg);color:var(--txt);font-size:14px;
-       -webkit-text-size-adjust:100%;text-size-adjust:100%}
+:root{
+  --base:#14161b; --panel:#1b1e25; --panel2:#21252e; --line:#2c313c;
+  --ink:#ECE9E1; --muted:#8b93a3; --faint:#5c6473;
+  --cr:#E8503A; --cr-dim:#3a201c; --hr:#4E8FE0; --hr-dim:#1b2a3f;
+  --yt:#C08AF5; --yt-dim:#2a1f3a;
+  --gold:#E0B24E; --good:#5fb878;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--base);color:var(--ink);
+  font-family:"Space Grotesk",ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;text-size-adjust:100%}
+.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+a{color:inherit}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 20px 80px}
 
-  header{padding:16px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;
-         background:rgba(15,19,32,.95);backdrop-filter:blur(6px);z-index:30}
-  .topline{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
-  h1{font-size:18px;margin:0}
-  .updated{color:var(--muted);font-size:12px}
-  .grand{font-size:13px;margin-left:auto}
-  .grand b{color:var(--cr)} .grand .hr{color:var(--hr)}
-  .note{color:var(--muted);font-size:11px;margin-top:6px}
-  .logout{color:var(--muted);font-size:12px;text-decoration:none;border:1px solid var(--line);
-          padding:4px 10px;border-radius:8px}
-  .logout:hover{color:var(--txt);border-color:#3a4a6e}
-  .mk{color:var(--stale);cursor:help}
+/* header */
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line);padding-bottom:18px}
+.brand{display:flex;align-items:center;gap:14px}
+.glyph{width:42px;height:42px;border:1.5px solid var(--gold);border-radius:9px;display:grid;place-items:center;
+  color:var(--gold);font-weight:700;font-size:20px;transform:rotate(-4deg)}
+h1{font-size:21px;margin:0;letter-spacing:.3px}
+.sub{color:var(--muted);font-size:12.5px;margin-top:3px;letter-spacing:.2px}
+.head-r{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.updated{font-size:11.5px;color:var(--faint);text-align:right}
+.updated b{color:var(--muted);font-weight:500}
+.logout{font-size:11px;color:var(--faint);text-decoration:none;border:1px solid var(--line);
+  padding:4px 10px;border-radius:8px}
+.logout:hover{color:var(--muted);border-color:var(--faint)}
 
-  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
-  input,select,button{background:var(--card);color:var(--txt);border:1px solid var(--line);
-       border-radius:9px;padding:9px 11px;font-size:14px}
-  input{min-width:240px}
-  button#refreshBtn{cursor:pointer;background:#1d3a5f;border-color:#2c5a8f;color:#cfe4ff}
-  button#refreshBtn:hover:not(:disabled){background:#234a78}
-  button#refreshBtn:disabled{opacity:.6;cursor:default}
-  #refreshMsg{align-self:center;font-size:12px;color:var(--muted)}
+/* kpis */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0 8px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi .n{font-size:25px;font-weight:600}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;margin-top:2px}
+.kpi.cr .n{color:var(--cr)} .kpi.hr .n{color:var(--hr)} .kpi.yt .n{color:var(--yt)}
+.split{height:7px;border-radius:5px;overflow:hidden;display:flex;margin-top:10px;background:var(--panel2)}
+.split i{display:block;height:100%}
 
-  .wrap{padding:8px 22px 60px;max-width:1500px;margin:0 auto}
+/* controls */
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:22px 0 14px}
+.search{flex:1;min-width:200px;display:flex;align-items:center;gap:8px;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;padding:9px 13px}
+.search input{flex:1;background:none;border:none;color:var(--ink);font-size:14px;outline:none}
+.search input::placeholder{color:var(--faint)}
+.btn{background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:10px;
+  padding:9px 13px;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap}
+.btn:hover:not(:disabled){border-color:var(--faint);color:var(--ink)}
+.btn:disabled{opacity:.55;cursor:default}
+.btn.trend{color:var(--gold);border-color:#5a4a23}
+#refreshMsg{font-size:11.5px;color:var(--muted);flex-basis:100%}
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted);align-items:center;flex-wrap:wrap}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
+.chip{font-size:11.5px;padding:5px 11px;border-radius:20px;border:1px solid var(--line);
+  background:var(--panel);color:var(--muted);cursor:pointer;transition:.12s;letter-spacing:.2px}
+.chip:hover{border-color:var(--faint);color:var(--ink)}
+.chip.on{background:var(--ink);color:var(--base);border-color:var(--ink);font-weight:600}
 
-  /* intestazione set */
-  .set-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-            margin:26px 0 12px;padding:12px 16px;background:var(--card2);
-            border:1px solid var(--line);border-radius:12px;cursor:pointer}
-  .set-head h2{font-size:16px;margin:0}
-  .set-head .count{color:var(--muted);font-size:12px}
-  .set-tot{margin-left:auto;display:flex;gap:22px;font-size:13px;font-variant-numeric:tabular-nums}
-  .set-tot .lbl{color:var(--muted);font-size:11px;display:block}
-  .set-tot .cr{color:var(--cr);font-weight:700} .set-tot .hr{color:var(--hr);font-weight:700}
-  .set-tot .yt{color:var(--yt);font-weight:700}
-  .caret{color:var(--muted);font-size:13px;width:14px}
+/* set group */
+.set{margin-bottom:26px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel)}
+.set-h{display:flex;align-items:center;gap:12px;padding:13px 18px;background:var(--panel2);
+  border-bottom:1px solid var(--line)}
+.pack{font-size:11px;font-weight:700;letter-spacing:1px;color:var(--gold);
+  border:1px solid var(--gold);border-radius:6px;padding:3px 8px;white-space:nowrap}
+.set-name{font-size:15px;font-weight:600}
+.set-meta{margin-left:auto;font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:12px}
+.set-trend{background:none;border:1px solid var(--line);color:var(--muted);border-radius:7px;
+  padding:3px 9px;cursor:pointer;font-size:13px;line-height:1;font-family:inherit}
+.set-trend:hover{color:var(--gold);border-color:#5a4a23}
 
-  /* griglia card */
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(186px,1fr));gap:14px}
-  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;
-        overflow:hidden;cursor:pointer;transition:transform .08s,border-color .08s;display:flex;flex-direction:column}
-  .tile:hover{transform:translateY(-2px);border-color:#3a4a6e}
-  .tile .imgbox{background:#0a0d16;display:flex;align-items:center;justify-content:center;
-                padding:10px;aspect-ratio:3/4}
-  .tile img{max-width:100%;max-height:100%;object-fit:contain;display:block}
-  .tile .body{padding:10px 12px 12px}
-  .tile .nm{font-size:13px;line-height:1.25;height:2.5em;overflow:hidden;
-            display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-  .tile .meta{display:flex;align-items:center;gap:8px;margin:6px 0 9px}
-  .tile .code{color:var(--muted);font-size:11px}
-  .rar{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
-  .prices{display:grid;grid-template-columns:1fr;gap:6px}
-  .prow{display:flex;align-items:center;gap:7px;font-size:13px;font-variant-numeric:tabular-nums}
-  .prow .tag{font-size:10px;font-weight:700;width:24px}
-  .prow .tag.cr{color:var(--cr)} .prow .tag.hr{color:var(--hr)} .prow .tag.yt{color:var(--yt)}
-  .prow .val{font-weight:600}
-  .prow .w{color:var(--muted);font-size:11px;margin-left:auto}
-  .prow.stale .val{font-style:italic;color:var(--stale)}
-  .bar{height:4px;border-radius:3px;background:#0a0d16;overflow:hidden;margin-top:3px}
-  .bar i{display:block;height:100%}
-  .bar i.cr{background:var(--cr)} .bar i.hr{background:var(--hr)} .bar i.yt{background:var(--yt)}
-  .empty{padding:50px;text-align:center;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+thead th{font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--faint);
+  text-align:right;padding:9px 18px;font-weight:500;border-bottom:1px solid var(--line)}
+thead th.l{text-align:left}
+tbody td{padding:11px 18px;border-bottom:1px solid #23272f;text-align:right;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:#1f232b}
+td.code{text-align:left;color:var(--muted);font-size:12.5px}
+td.name{text-align:left;max-width:330px;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+td.name .rar{font-size:10px;color:var(--faint);border:1px solid var(--line);border-radius:10px;
+  padding:0 6px;margin-left:7px;vertical-align:middle}
+.price{font-size:14px;font-weight:500}
+.price.na{color:var(--faint);font-weight:400}
+.price.stale{font-style:italic;color:var(--gold)}
+.cr-c{color:var(--cr)} .hr-c{color:var(--hr)} .yt-c{color:var(--yt)}
+.win{position:relative}
+.best{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
+  padding:3px 9px;border-radius:20px}
+.best.cardrush{background:var(--cr-dim);color:var(--cr)}
+.best.hareruya{background:var(--hr-dim);color:var(--hr)}
+.best.yuyutei{background:var(--yt-dim);color:var(--yt)}
+.best.none{background:var(--panel2);color:var(--faint)}
+.spread{font-size:11px;color:var(--muted)} .spread b{color:var(--good);font-weight:600}
+.comm{color:var(--muted);font-size:12px}
+.empty{padding:40px;text-align:center;color:var(--faint);line-height:1.7}
+.empty code{background:var(--panel2);padding:2px 7px;border-radius:6px;color:var(--ink)}
+.foot{margin-top:30px;font-size:11px;color:var(--faint);text-align:center;line-height:1.7}
 
-  /* modal grafico */
-  .modal{position:fixed;inset:0;background:rgba(5,8,15,.78);display:none;
-         align-items:center;justify-content:center;z-index:50;padding:20px}
-  .modal.on{display:flex}
-  .sheet{background:var(--card);border:1px solid var(--line);border-radius:14px;
-         width:min(680px,96vw);max-height:92vh;overflow:auto;padding:18px}
-  .sheet .hd{display:flex;gap:14px;align-items:center;margin-bottom:12px}
-  .sheet .hd img{width:64px;height:88px;object-fit:contain;background:#0a0d16;border-radius:6px}
-  .sheet .hd h3{margin:0 0 3px;font-size:15px}
-  .sheet .hd .sub{color:var(--muted);font-size:12px}
-  .sheet .x{cursor:pointer;color:var(--muted);font-size:22px;line-height:1;border:none;background:none}
-  .idxbtn{background:none;border:1px solid var(--line);color:var(--muted);border-radius:7px;
-          padding:3px 9px;cursor:pointer;font-size:13px;line-height:1}
-  .idxbtn:hover{color:var(--txt);border-color:#3a4a6e}
-  #globalIdxBtn{cursor:pointer;background:#23314d;border-color:#3a4a6e;color:#cfe4ff}
-  .toggle{margin-left:auto;background:#1d3a5f;border:1px solid #2c5a8f;color:#cfe4ff;
-          border-radius:8px;padding:5px 11px;cursor:pointer;font-size:12px}
-  .toggle:hover{background:#234a78}
-  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:2px 0 8px}
-  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
-  .chart-box{height:260px}
+/* detail modal */
+.modal{position:fixed;inset:0;background:rgba(8,9,12,.8);display:none;align-items:center;
+  justify-content:center;z-index:50;padding:20px}
+.modal.on{display:flex}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  width:min(620px,96vw);max-height:92vh;overflow:auto;padding:20px}
+.sheet .hd{display:flex;gap:16px;align-items:flex-start;margin-bottom:16px}
+.sheet .hd img{width:74px;height:103px;object-fit:contain;background:var(--base);
+  border:1px solid var(--line);border-radius:8px;flex:none}
+.sheet .hd .ti{flex:1;min-width:0}
+.sheet .hd h3{margin:0 0 4px;font-size:16px}
+.sheet .hd .meta{color:var(--muted);font-size:12px}
+.sheet .x{cursor:pointer;color:var(--muted);font-size:24px;line-height:1;border:none;
+  background:none;flex:none;font-family:inherit}
+.sheet .x:hover{color:var(--ink)}
+.cmp{display:flex;flex-direction:column;gap:8px;margin:4px 0 16px}
+.cmp .r{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:10px;padding:10px 13px;font-size:13.5px}
+.cmp .r .src{font-weight:600;width:84px}
+.cmp .r .p{font-weight:600;margin-left:auto}
+.cmp .r .c{color:var(--muted);font-size:12px;width:96px;text-align:right}
+.cmp .r .bdg{font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:var(--cr-dim);color:var(--good)}
+.cmp .r.off{opacity:.55}
+.toggle{margin-left:auto;background:none;border:1px solid var(--line);color:var(--muted);
+  border-radius:8px;padding:5px 11px;cursor:pointer;font-size:12px;font-family:inherit}
+.toggle:hover{color:var(--ink);border-color:var(--faint)}
+.legend.modal-l{margin:2px 0 10px}
+.chart-box{height:240px}
+.sub-h{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--faint);margin:0 0 8px}
 
-  /* ---------- RESPONSIVE ---------- */
-  /* tablet */
-  @media (max-width: 900px){
-    .wrap{padding:6px 14px 50px}
-    .grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
-  }
-  /* mobile */
-  @media (max-width: 640px){
-    header{padding:12px 14px}
-    h1{font-size:16px}
-    .topline{gap:10px}
-    .grand{margin-left:0;flex-basis:100%}
-    .controls{gap:8px}
-    .controls input{flex:1 1 100%;min-width:0}
-    .controls select{flex:1 1 46%}
-    #refreshBtn{flex:1 1 46%}
-    #refreshMsg{flex-basis:100%}
-    .wrap{padding:4px 12px 50px}
-    .grid{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
-    .set-head{margin:16px 0 10px;padding:10px 12px}
-    .set-head h2{font-size:15px}
-    .set-tot{margin-left:0;flex-basis:100%;gap:20px}
-    .tile .nm{font-size:12px}
-    .prow{font-size:12px}
-    .modal{padding:10px}
-    .sheet{width:100%;padding:14px}
-    .chart-box{height:240px}
-  }
-  /* telefoni stretti: 2 colonne garantite */
-  @media (max-width: 380px){
-    .grid{grid-template-columns:repeat(2,1fr);gap:8px}
-    .tile .body{padding:8px 9px 10px}
-    .tile .imgbox{padding:7px}
-  }
+@media(max-width:720px){
+  .wrap{padding:18px 13px 70px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  td.comm,th.comm,td.name,th.name{display:none}
+  .controls{gap:8px}
+  .search{min-width:0;flex:1 1 100%}
+  .legend{flex-basis:100%}
+  thead th,tbody td{padding:10px 12px}
+  .sheet{padding:15px}
+  .sheet .hd img{width:60px;height:84px}
+  .chart-box{height:220px}
+}
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Chart.js: unica dipendenza esterna, usata SOLO per il grafico storico del dettaglio.
+     Disegnare assi/tooltip/linee a mano sarebbe fragile; tutto il resto resta vanilla JS. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-<header>
-  <div class="topline">
-    <h1>TCG Tracker</h1>
-    <span class="updated" id="updated"></span>
-    <span class="grand" id="grand"></span>
-    <a href="https://tcgtracker.cloudflareaccess.com/cdn-cgi/access/logout" class="logout" title="Esci da Access">Esci</a>
+<div class="wrap">
+  <div class="head">
+    <div class="brand">
+      <div class="glyph">¥</div>
+      <div>
+        <h1>TCG Tracker — Buying Prices</h1>
+        <div class="sub">Confronto offerte d'acquisto · mercato giapponese</div>
+      </div>
+    </div>
+    <div class="head-r">
+      <a href="https://tcgtracker.cloudflareaccess.com/cdn-cgi/access/logout" class="logout" title="Esci da Access">Esci</a>
+      <div class="updated">ultimo aggiornamento<br><b id="upd">…</b></div>
+    </div>
   </div>
-  <div class="note"><span class="mk">*</span> prezzo riportato dall'ultimo valore noto (manuale o non confermato nell'ultimo aggiornamento)</div>
+
+  <div class="kpis" id="kpis"></div>
+
   <div class="controls">
-    <input id="search" placeholder="Cerca carta o codice…" autocomplete="off">
-    <select id="setFilter"><option value="">Tutti i set</option></select>
-    <button id="globalIdxBtn" title="Andamento del prezzo medio ponderato di tutti i set">📈 Andamento</button>
-    <button id="refreshBtn" title="Avvia subito lo scraping dei prezzi">↻ Aggiorna ora</button>
+    <div class="search">
+      <span style="color:var(--faint)">⌕</span>
+      <input id="q" placeholder="Cerca per codice o nome carta…" autocomplete="off">
+    </div>
+    <button class="btn trend" id="globalTrend" title="Andamento del prezzo medio ponderato di tutti i set">📈 Andamento</button>
+    <button class="btn" id="refreshBtn" title="Avvia subito lo scraping dei prezzi">↻ Aggiorna ora</button>
+    <div class="legend" id="legend"></div>
     <span id="refreshMsg"></span>
   </div>
-</header>
+  <div class="chips" id="chips"></div>
 
-<div class="wrap">
-  <div id="sets"></div>
-  <div class="empty" id="empty" hidden>Nessuna carta corrisponde ai filtri.</div>
+  <div id="list"></div>
+
+  <div class="foot">
+    I prezzi provengono dal database <span class="mono">tcg_tracker</span> (vista <span class="mono">v_buylist</span>),
+    popolato dallo scraper. Struttura identica al foglio “BuyList Pokemon”: l'Excel originale non viene modificato.<br>
+    “+10%” = buying price maggiorato della commissione (colonna F dell'Excel). Clicca una carta per lo storico.
+  </div>
 </div>
 
+<!-- modal dettaglio: storico carta OPPURE indice set/globale -->
 <div class="modal" id="modal">
   <div class="sheet">
     <div class="hd">
       <img id="mImg" alt="">
-      <div><h3 id="mName"></h3><div class="sub" id="mSub"></div></div>
+      <div class="ti">
+        <h3 id="mName"></h3>
+        <div class="meta" id="mMeta"></div>
+      </div>
       <button class="toggle" id="mToggle" hidden>Indice 100</button>
-      <button class="x" id="mClose">×</button>
+      <button class="x" id="mClose" aria-label="Chiudi">×</button>
     </div>
-    <div class="legend" id="mLegend"></div>
+    <div id="mCmp"></div>
+    <p class="sub-h" id="mChartTitle">Storico buyback</p>
+    <div class="legend modal-l" id="mLegend"></div>
     <div class="chart-box"><canvas id="mCanvas"></canvas></div>
   </div>
 </div>
 
 <script>
-const YEN = n => (n==null||n===0) ? "—" : "¥" + Number(n).toLocaleString("ja-JP");
-const PCT = n => (n==null) ? "—" : n.toFixed(1) + "%";
+"use strict";
+const yen = v => (v==null||v===0) ? "—" : "¥"+Number(v).toLocaleString("ja-JP");
 const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
-let DATA=[], HIST={}, SETS=[], collapsed=new Set(), chart=null;
-let SETIDX={sets:{},global:{}}, idxNormalize=false, idxName=null;
-const qval = ()=>document.getElementById("search").value.trim().toLowerCase();
-const setFilter = ()=>document.getElementById("setFilter").value;
-const imgSrc = c => `images/${c.pack_code}_${c.model_number}.webp`;
 
 // Fonti generiche: ogni gioco usa la sua coppia (Pokémon=cardrush+hareruya,
-// One Piece=cardrush+yuyutei...). La dashboard si adatta alle fonti presenti.
+// One Piece=cardrush+yuyutei…). La dashboard si adatta alle fonti presenti.
 const SRC_ORDER = ["cardrush","hareruya","yuyutei"];
 const SRC_META = {
-  cardrush:{tag:"CR",cls:"cr",name:"CardRush",color:"#5aa9ff"},
-  hareruya:{tag:"HR",cls:"hr",name:"Hareruya",color:"#ff8a5a"},
-  yuyutei:{tag:"YT",cls:"yt",name:"Yuyu-tei",color:"#c08af5"},
+  cardrush:{name:"CardRush", cls:"cr-c", key:"cardrush", color:"#E8503A"},
+  hareruya:{name:"Hareruya", cls:"hr-c", key:"hareruya", color:"#4E8FE0"},
+  yuyutei:{name:"Yuyu-tei", cls:"yt-c", key:"yuyutei", color:"#C08AF5"},
 };
-const priceOf = (c,s)=> (c.prices && c.prices[s]) ? c.prices[s].price : null;
-const stockOf = (c,s)=> (c.prices && c.prices[s]) ? c.prices[s].stock : null;
-const setSources = s =>{ const have=new Set();
-  s.cards.forEach(c=>SRC_ORDER.forEach(x=>{ if(c.prices&&c.prices[x]) have.add(x); }));
-  return SRC_ORDER.filter(x=>have.has(x)); };
+
+// Lettura tollerante a DUE schemi: nuovo multi-fonte r.prices{src:{price,comm,stock}}
+// e legacy piatto r.cardrush_price / r.cardrush_price_comm / r.cardrush_stock.
+const priceOf = (r,s)=> (r.prices && r.prices[s]) ? r.prices[s].price : (r[s+"_price"] ?? null);
+const commOf  = (r,s)=> (r.prices && r.prices[s]) ? r.prices[s].comm  : (r[s+"_price_comm"] ?? null);
+const stockOf = (r,s)=> (r.prices && r.prices[s]) ? r.prices[s].stock : (r[s+"_stock"] ?? null);
+const sourcesOf = r => SRC_ORDER.filter(s => priceOf(r,s)!=null);
+
+function bestOf(r){
+  if(r.best_source && r.best_price!=null) return {src:r.best_source, price:r.best_price};
+  let bs=null, bp=null;
+  for(const s of sourcesOf(r)){ const p=priceOf(r,s); if(bp==null||p>bp){bp=p;bs=s;} }
+  return {src:bs, price:bp};
+}
+function spreadHtml(r){
+  const ps = sourcesOf(r).map(s=>priceOf(r,s)).filter(p=>p>0).sort((a,b)=>b-a);
+  if(ps.length<2) return "";
+  const pct = Math.round((ps[0]-ps[1])/ps[1]*100);
+  return pct>0 ? `<span class="spread">+<b>${pct}%</b></span>` : "";
+}
+const imgSrc = r => `images/${r.pack_code}_${r.model_number}.webp`;
+
+let DATA=[], HIST={}, SETIDX={sets:{},global:{}}, GROUPS=[], ALLSRC=[];
+let activeSet="ALL", chart=null, idxName=null, idxNormalize=false;
 
 async function load(){
-  const [b,h,si] = await Promise.all([
-    fetch("./data/buylist.json").then(r=>r.json()),
-    fetch("./data/history.json").then(r=>r.json()).catch(()=>({series:{}})),
-    fetch("./data/setindex.json").then(r=>r.json()).catch(()=>({sets:{},global:{}})),
-  ]);
-  DATA = b.rows||[]; HIST = h.series||{}; SETIDX = {sets:si.sets||{}, global:si.global||{}};
-  document.getElementById("updated").textContent = "Aggiornato: " + (b.generated_at||"—");
-  buildSets();
-  const sel=document.getElementById("setFilter");
-  SETS.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s.name; sel.appendChild(o); });
-  const grandTotals={};
-  SETS.forEach(s=> s.sources.forEach(src=>{ grandTotals[src]=(grandTotals[src]||0)+(s.totals[src]||0); }));
-  const gparts=SRC_ORDER.filter(src=>src in grandTotals).map(src=>
-    `${SRC_META[src].name} <span style="color:var(--${SRC_META[src].cls});font-weight:700">${YEN(grandTotals[src])}</span>`);
-  document.getElementById("grand").innerHTML = gparts.length ? "Totale — "+gparts.join(" · ") : "";
-  render();
+  const list=document.getElementById("list");
+  let b,h,si;
+  try{
+    [b,h,si] = await Promise.all([
+      fetch("./data/buylist.json").then(r=>{if(!r.ok)throw 0;return r.json();}),
+      fetch("./data/history.json").then(r=>r.ok?r.json():{series:{}}).catch(()=>({series:{}})),
+      fetch("./data/setindex.json").then(r=>r.ok?r.json():{sets:{},global:{}}).catch(()=>({sets:{},global:{}})),
+    ]);
+  }catch(e){
+    // file:// blocca fetch dei JSON locali: i browser lo vietano per sicurezza.
+    list.innerHTML = `<div class="empty">Impossibile caricare i dati aprendo il file direttamente
+      (<span class="mono">file://</span> blocca <span class="mono">fetch</span>).<br>
+      Avvia un piccolo server statico dalla cartella <code>dashboard/</code>:<br><br>
+      <code>py -m http.server 8000</code><br><br>
+      poi apri <code>http://localhost:8000/</code></div>`;
+    return;
+  }
+  DATA = b.rows||[];
+  HIST = h.series||{};
+  SETIDX = {sets:si.sets||{}, global:si.global||{}};
+  document.getElementById("upd").textContent = b.generated_at || "—";
+
+  // fonti effettivamente presenti nei dati, in ordine canonico
+  const seen=new Set();
+  DATA.forEach(r=>sourcesOf(r).forEach(s=>seen.add(s)));
+  ALLSRC = SRC_ORDER.filter(s=>seen.has(s));
+
+  // raggruppa per set (pack_code), ordinato per set_order
+  const g={};
+  for(const r of DATA){ (g[r.pack_code] ??= {name:r.set_name, order:r.set_order, rows:[]}).rows.push(r); }
+  GROUPS = Object.entries(g).sort((a,b)=>a[1].order-b[1].order);
+
+  buildKpis(); buildLegend(); render();
 }
 
-function buildSets(){
-  const map=new Map();
-  for(const r of DATA){
-    if(!map.has(r.set_name)) map.set(r.set_name,{name:r.set_name,order:r.set_order,cards:[]});
-    map.get(r.set_name).cards.push(r);
-  }
-  SETS=[...map.values()].sort((a,b)=>(a.order-b.order)||a.name.localeCompare(b.name));
-  for(const s of SETS){
-    s.sources = setSources(s);              // fonti presenti in questo set
-    s.totals = {};
-    for(const src of s.sources)
-      s.totals[src] = s.cards.reduce((a,c)=>a+(priceOf(c,src)||0),0);
-    for(const c of s.cards){
-      c._w = {};
-      for(const src of s.sources){
-        const p=priceOf(c,src), tot=s.totals[src];
-        c._w[src] = (p && tot) ? p/tot*100 : null;
-      }
-    }
-  }
+function buildKpis(){
+  const best={};
+  for(const r of DATA){ const bs=bestOf(r).src; if(bs) best[bs]=(best[bs]||0)+1; }
+  const totBest = Object.values(best).reduce((a,c)=>a+c,0) || 1;
+  const tiles = [
+    `<div class="kpi"><div class="n">${GROUPS.length}</div><div class="l">Set monitorati</div></div>`,
+    `<div class="kpi"><div class="n">${DATA.length}</div><div class="l">Carte tracciate</div></div>`,
+  ];
+  ALLSRC.forEach((s,i)=>{
+    const cls = s==="cardrush"?"cr":s==="hareruya"?"hr":"yt";
+    const bar = i===0
+      ? `<div class="split">${ALLSRC.map(x=>`<i style="width:${(best[x]||0)/totBest*100}%;background:${SRC_META[x].color}"></i>`).join("")}</div>`
+      : "";
+    tiles.push(`<div class="kpi ${cls}"><div class="n">${best[s]||0}</div><div class="l">Best su ${SRC_META[s].name}</div>${bar}</div>`);
+  });
+  document.getElementById("kpis").innerHTML = tiles.join("");
 }
 
-function priceRow(tag, cls, val, stock, weight){
-  const stale = stock===0 && val;
-  const v = (val==null||val===0) ? '<span class="val">—</span>'
-          : `<span class="val">${YEN(val)}${stale?'<span class="mk" title="Prezzo riportato/non confermato">&nbsp;*</span>':''}</span>`;
-  const w = weight==null ? '' : `<span class="w">${PCT(weight)}</span>`;
-  const bar = weight==null ? '' : `<div class="bar"><i class="${cls}" style="width:${Math.min(weight,100)}%"></i></div>`;
-  return `<div><div class="prow ${stale?'stale':''}"><span class="tag ${cls}">${tag}</span>${v}${w}</div>${bar}</div>`;
+function buildLegend(){
+  document.getElementById("legend").innerHTML =
+    ALLSRC.map(s=>`<span><span class="dot" style="background:${SRC_META[s].color}"></span>${SRC_META[s].name}</span>`).join("")
+    + `<span><span class="dot" style="background:var(--gold)"></span>migliore offerta</span>`;
+}
+
+function buildChips(){
+  const el=document.getElementById("chips"); el.innerHTML="";
+  const mk=(label,key)=>{ const c=document.createElement("div");
+    c.className="chip"+(activeSet===key?" on":""); c.textContent=label;
+    c.onclick=()=>{activeSet=key;render()}; el.appendChild(c); };
+  mk("Tutti i set","ALL");
+  for(const [pc,grp] of GROUPS) mk(pc+" · "+grp.name, pc);
+}
+
+function rowHtml(r){
+  const cells = ALLSRC.map(s=>{
+    const p=priceOf(r,s), stale = p!=null && stockOf(r,s)===0;
+    const cls = p==null ? "price na" : ("price mono "+SRC_META[s].cls+(stale?" stale":""));
+    return `<td class="${cls}">${yen(p)}${stale?'<span title="prezzo riportato / non confermato"> *</span>':''}</td>`;
+  }).join("");
+  const b=bestOf(r);
+  const badge = !b.src ? `<span class="best none">n/d</span>`
+    : `<span class="best ${b.src}">${SRC_META[b.src].name} ${yen(b.price)}</span> ${spreadHtml(r)}`;
+  const comm = b.src ? commOf(r,b.src) : null;
+  return `<tr data-id="${r.card_id}">
+    <td class="code mono">${esc(r.card_code)}</td>
+    <td class="name">${esc(r.name_en||r.full_name||"")}${r.rarity?`<span class="rar">${esc(r.rarity)}</span>`:""}</td>
+    ${cells}
+    <td class="win">${badge}</td>
+    <td class="comm mono">${comm!=null?yen(Math.round(comm)):"—"}</td>
+  </tr>`;
 }
 
 function render(){
-  const cont=document.getElementById("sets"); cont.innerHTML="";
-  const query=qval(), sf=setFilter();
+  buildChips();
+  const q=document.getElementById("q").value.trim().toLowerCase();
+  const list=document.getElementById("list"); list.innerHTML="";
+  const srcHead = ALLSRC.map(s=>`<th>${SRC_META[s].name}</th>`).join("");
   let shown=0;
-  for(const s of SETS){
-    if(sf && s.name!==sf) continue;
-    const cards = s.cards.filter(c=> !query ||
-      (c.name_en||"").toLowerCase().includes(query) ||
-      (c.full_name||"").toLowerCase().includes(query) ||
-      (c.card_code||"").toLowerCase().includes(query));
-    if(!cards.length) continue;
-    shown++;
-    const isCol = collapsed.has(s.name);
-
-    const totHtml = s.sources.map(src=>
-      `<div><span class="lbl">${SRC_META[src].name}</span><span class="${SRC_META[src].cls}">${YEN(s.totals[src])}</span></div>`).join("");
-    const head=document.createElement("div"); head.className="set-head";
-    head.innerHTML =
-      `<span class="caret">${isCol?'▸':'▾'}</span>
-       <h2>${esc(s.name)}</h2><span class="count">${s.cards.length} carte</span>
-       <div class="set-tot">${totHtml}</div>
-       <button class="idxbtn" title="Andamento prezzo del set">📈</button>`;
-    head.onclick=()=>{ collapsed.has(s.name)?collapsed.delete(s.name):collapsed.add(s.name); render(); };
-    const ib=head.querySelector(".idxbtn");
-    if(SETIDX.sets[s.name]) ib.onclick=(e)=>{ e.stopPropagation(); openIndex(s.name); };
-    else ib.style.display="none";
-    cont.appendChild(head);
-    if(isCol) continue;
-
-    const grid=document.createElement("div"); grid.className="grid";
-    for(const c of cards){
-      const tile=document.createElement("div"); tile.className="tile";
-      tile.innerHTML =
-        `<div class="imgbox"><img loading="lazy" src="${imgSrc(c)}" alt="" onerror="this.style.visibility='hidden'"></div>
-         <div class="body">
-           <div class="nm" title="${esc(c.full_name)}">${esc(c.name_en||c.full_name)}</div>
-           <div class="meta"><span class="code">${esc(c.card_code)}</span>${c.rarity?`<span class="rar">${esc(c.rarity)}</span>`:''}</div>
-           <div class="prices">
-             ${s.sources.map(src=>priceRow(SRC_META[src].tag,SRC_META[src].cls,priceOf(c,src),stockOf(c,src),(c._w||{})[src])).join("")}
-           </div>
-         </div>`;
-      tile.onclick=()=>openChart(c);
-      grid.appendChild(tile);
-    }
-    cont.appendChild(grid);
+  for(const [pc,grp] of GROUPS){
+    if(activeSet!=="ALL" && activeSet!==pc) continue;
+    let rs=grp.rows;
+    if(q) rs=rs.filter(r=>
+      (r.card_code||"").toLowerCase().includes(q) ||
+      (r.full_name||"").toLowerCase().includes(q) ||
+      (r.name_en||"").toLowerCase().includes(q));
+    if(!rs.length) continue;
+    shown+=rs.length;
+    const hasIdx = !!SETIDX.sets[grp.name];
+    const sec=document.createElement("section"); sec.className="set";
+    sec.innerHTML=`
+      <div class="set-h"><span class="pack">${esc(pc)}</span><span class="set-name">${esc(grp.name)}</span>
+        <span class="set-meta">${rs.length} cart${rs.length===1?"a":"e"}
+          ${hasIdx?`<button class="set-trend" data-set="${esc(grp.name)}" title="Andamento prezzo del set">📈</button>`:""}
+        </span></div>
+      <table>
+        <thead><tr>
+          <th class="l">Codice</th><th class="l name">Carta</th>
+          ${srcHead}<th class="l">Migliore offerta</th><th class="comm">+10%</th>
+        </tr></thead>
+        <tbody>${rs.map(rowHtml).join("")}</tbody>
+      </table>`;
+    list.appendChild(sec);
   }
-  document.getElementById("empty").hidden = shown>0;
+  if(!shown) list.innerHTML=`<div class="empty">Nessuna carta corrisponde alla ricerca.</div>`;
 }
 
-function openChart(c){
+/* ---------- modal ---------- */
+const byId = id => document.getElementById(id);
+function openModal(){ byId("modal").classList.add("on"); }
+function closeModal(){ byId("modal").classList.remove("on"); if(chart){chart.destroy();chart=null;} }
+
+function cardById(id){ return DATA.find(r=>String(r.card_id)===String(id)); }
+
+function openCard(r){
   idxName=null;
-  const img=document.getElementById("mImg"); img.style.display=""; img.src=imgSrc(c);
-  document.getElementById("mToggle").hidden=true;
-  document.getElementById("mName").textContent = c.name_en||c.full_name||c.card_code;
-  document.getElementById("mSub").textContent = `${c.full_name||""} · ${c.card_code}${c.rarity?' · '+c.rarity:''}`;
-  document.getElementById("modal").classList.add("on");
-  drawChart(document.getElementById("mCanvas"), c.card_id);
+  const img=byId("mImg"); img.style.display=""; img.src=imgSrc(r);
+  img.onerror=()=>{img.style.visibility="hidden";}; img.style.visibility="visible";
+  byId("mToggle").hidden=true;
+  byId("mName").textContent = r.name_en || r.full_name || r.card_code;
+  byId("mMeta").textContent = [r.full_name, r.card_code, r.rarity].filter(Boolean).join(" · ");
+  byId("mChartTitle").textContent = "Storico buyback";
+
+  // confronto negozi
+  const b=bestOf(r);
+  byId("mCmp").innerHTML = `<div class="cmp">` + sourcesOf(r).map(s=>{
+    const p=priceOf(r,s), c=commOf(r,s), off=stockOf(r,s)===0;
+    const win = b.src===s ? `<span class="bdg">MIGLIORE</span>` : "";
+    return `<div class="r ${off?'off':''}">
+      <span class="src ${SRC_META[s].cls}">${SRC_META[s].name}</span>
+      ${win}
+      <span class="p">${yen(p)}</span>
+      <span class="c">+10% ${c!=null?yen(Math.round(c)):"—"}</span>
+    </div>`;
+  }).join("") + (sourcesOf(r).length<2?`<div class="r off"><span class="src">—</span><span class="p" style="margin-left:auto;color:var(--faint)">una sola fonte disponibile</span></div>`:"") + `</div>`;
+
+  openModal();
+  drawHistory(byId("mCanvas"), r.card_id);
 }
 
 function openIndex(name){
   const entry = name==="__GLOBAL__" ? SETIDX.global : (SETIDX.sets||{})[name];
-  if(!entry || (!entry.cardrush && !entry.hareruya)) return;
+  if(!entry) return;
   idxName=name;
-  document.getElementById("mImg").style.display="none";
-  const tg=document.getElementById("mToggle"); tg.hidden=false; tg.textContent = idxNormalize?"Mostra ¥":"Indice 100";
-  document.getElementById("mName").textContent = name==="__GLOBAL__" ? "Andamento generale" : name;
-  document.getElementById("mSub").textContent = "Indice di prezzo ponderato" + (name==="__GLOBAL__" ? " (tutti i set)" : " del set");
-  document.getElementById("modal").classList.add("on");
-  drawIndexChart(document.getElementById("mCanvas"), entry, idxNormalize);
+  const img=byId("mImg"); img.style.display="none";
+  const tg=byId("mToggle"); tg.hidden=false; tg.textContent = idxNormalize?"Mostra ¥":"Indice 100";
+  byId("mName").textContent = name==="__GLOBAL__" ? "Andamento generale" : name;
+  byId("mMeta").textContent = "Indice di prezzo ponderato" + (name==="__GLOBAL__"?" · tutti i set":" · del set");
+  byId("mChartTitle").textContent = idxNormalize ? "Indice (base 100)" : "Indice ponderato (¥)";
+  byId("mCmp").innerHTML = "";
+  openModal();
+  drawIndex(byId("mCanvas"), entry, idxNormalize);
 }
 
-function closeModal(){ document.getElementById("modal").classList.remove("on"); if(chart){chart.destroy();chart=null;} }
-document.getElementById("mClose").onclick = closeModal;
-document.getElementById("modal").onclick = e=>{ if(e.target.id==="modal") closeModal(); };
-
-// legenda dinamica: mostra solo le fonti effettivamente presenti nei dati
-function setLegend(srcs){
-  document.getElementById("mLegend").innerHTML = srcs.map(src=>
-    `<span><span class="dot" style="background:${SRC_META[src].color}"></span>${SRC_META[src].name}</span>`).join("");
+function legendFor(srcs){
+  byId("mLegend").innerHTML = srcs.map(s=>
+    `<span><span class="dot" style="background:${SRC_META[s].color}"></span>${SRC_META[s].name}</span>`).join("");
 }
 
-function drawChart(canvas, cardId){
+function lineChart(canvas, srcs, seriesFn, yFmt, tipFmt){
+  const days=[...new Set(srcs.flatMap(s=>seriesFn(s).map(p=>p[0])))].sort();
+  const toVals = s=>{ const m=Object.fromEntries(seriesFn(s).map(p=>[p[0],p[1]])); return days.map(d=>m[d]??null); };
+  if(chart) chart.destroy();
+  chart=new Chart(canvas,{type:"line",
+    data:{labels:days, datasets:srcs.map(s=>({
+      label:SRC_META[s].name, data:toVals(s), borderColor:SRC_META[s].color,
+      backgroundColor:SRC_META[s].color, spanGaps:true, tension:.25, pointRadius:3, borderWidth:2}))},
+    options:{maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${tipFmt(c.parsed.y)}`}}},
+      scales:{
+        x:{ticks:{color:"#8b93a3",maxRotation:0,autoSkip:true,maxTicksLimit:7},grid:{color:"#2c313c"}},
+        y:{ticks:{color:"#8b93a3",callback:yFmt},grid:{color:"#2c313c"}}}}
+  });
+}
+
+function drawHistory(canvas, cardId){
   const s=HIST[String(cardId)]||{};
-  const srcs=SRC_ORDER.filter(x=>s[x] && s[x].length);
-  setLegend(srcs);
-  const days=[...new Set(srcs.flatMap(x=>s[x].map(p=>p[0])))].sort();
-  const map=arr=>{const m=Object.fromEntries((arr||[]).map(p=>[p[0],p[1]]));return days.map(d=>m[d]??null);};
-  if(chart) chart.destroy();
-  chart=new Chart(canvas,{type:"line",
-    data:{labels:days,datasets:srcs.map(src=>(
-      {label:SRC_META[src].name,data:map(s[src]),borderColor:SRC_META[src].color,spanGaps:true,tension:.25,pointRadius:3}))},
-    options:{maintainAspectRatio:false,plugins:{legend:{display:false},
-      tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${YEN(c.parsed.y)}`}}},
-      scales:{x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
-              y:{ticks:{color:"#8b94ad",callback:v=>"¥"+v.toLocaleString("ja-JP")},grid:{color:"#27304a"}}}}
-  });
+  const srcs=SRC_ORDER.filter(x=>Array.isArray(s[x]) && s[x].length);
+  legendFor(srcs);
+  if(!srcs.length){ if(chart){chart.destroy();chart=null;}
+    canvas.getContext("2d").clearRect(0,0,canvas.width,canvas.height); return; }
+  lineChart(canvas, srcs, x=>s[x]||[], v=>"¥"+Number(v).toLocaleString("ja-JP"), v=>yen(v));
 }
 
-function drawIndexChart(canvas, entry, normalize){
-  const srcs=SRC_ORDER.filter(x=>entry[x] && entry[x].length);
-  setLegend(srcs);
-  const days=[...new Set(srcs.flatMap(x=>entry[x].map(p=>p[0])))].sort();
-  const series=arr=>{
-    const m=Object.fromEntries((arr||[]).map(p=>[p[0],p[1]]));
-    let vals=days.map(d=>m[d]??null);
-    if(normalize){ const base=vals.find(v=>v!=null); vals=vals.map(v=> v==null?null : +(v/base*100).toFixed(1)); }
-    return vals;
+function drawIndex(canvas, entry, normalize){
+  const srcs=SRC_ORDER.filter(x=>Array.isArray(entry[x]) && entry[x].length);
+  legendFor(srcs);
+  const series = x=>{
+    const arr=entry[x]||[];
+    if(!normalize) return arr;
+    const base=(arr.find(p=>p[1]!=null)||[])[1];
+    return base ? arr.map(p=>[p[0], p[1]==null?null:+(p[1]/base*100).toFixed(1)]) : arr;
   };
-  if(chart) chart.destroy();
-  chart=new Chart(canvas,{type:"line",
-    data:{labels:days,datasets:srcs.map(src=>(
-      {label:SRC_META[src].name,data:series(entry[src]),borderColor:SRC_META[src].color,spanGaps:true,tension:.25,pointRadius:3}))},
-    options:{maintainAspectRatio:false,plugins:{legend:{display:false},
-      tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${normalize?c.parsed.y:("¥"+Number(c.parsed.y).toLocaleString("ja-JP"))}`}}},
-      scales:{x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
-              y:{ticks:{color:"#8b94ad",callback:v=>normalize?v:"¥"+v.toLocaleString("ja-JP")},grid:{color:"#27304a"}}}}
-  });
+  lineChart(canvas, srcs, series,
+    v=>normalize?v:"¥"+Number(v).toLocaleString("ja-JP"),
+    v=>normalize?v:"¥"+Number(v).toLocaleString("ja-JP"));
 }
 
-document.getElementById("globalIdxBtn").onclick=()=>openIndex("__GLOBAL__");
-document.getElementById("mToggle").onclick=()=>{ idxNormalize=!idxNormalize; if(idxName) openIndex(idxName); };
-document.getElementById("search").oninput = render;
-document.getElementById("setFilter").onchange = render;
-document.getElementById("refreshBtn").onclick = async (e)=>{
-  const btn=e.currentTarget, msg=document.getElementById("refreshMsg");
+/* ---------- events ---------- */
+byId("q").addEventListener("input", render);
+byId("mClose").onclick = closeModal;
+byId("modal").onclick = e=>{ if(e.target.id==="modal") closeModal(); };
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });
+byId("globalTrend").onclick = ()=>{ if(SETIDX.global && (SETIDX.global.cardrush||SETIDX.global.hareruya)) openIndex("__GLOBAL__"); };
+byId("mToggle").onclick = ()=>{ idxNormalize=!idxNormalize; if(idxName) openIndex(idxName); };
+
+// delega: click su riga carta o sul bottone trend del set
+byId("list").addEventListener("click", e=>{
+  const tb=e.target.closest(".set-trend");
+  if(tb){ openIndex(tb.dataset.set); return; }
+  const tr=e.target.closest("tr[data-id]");
+  if(tr){ const r=cardById(tr.dataset.id); if(r) openCard(r); }
+});
+
+// "Aggiorna ora": innesca lo scraping via Cloudflare Worker (richiede auth Access).
+byId("refreshBtn").onclick = async e=>{
+  const btn=e.currentTarget, msg=byId("refreshMsg");
   btn.disabled=true; msg.textContent="Avvio in corso…";
   try{
     const r=await fetch("/api/trigger",{method:"POST"});
     const j=await r.json().catch(()=>({}));
     if(r.ok && j.ok){ msg.textContent="✓ Avviato — i prezzi compariranno tra ~7-8 minuti (ricarica più tardi)."; }
     else{ msg.textContent="✗ "+(j.error||("Errore "+r.status)); btn.disabled=false; }
-  }catch(err){ msg.textContent="✗ Errore di rete"; btn.disabled=false; }
+  }catch(err){ msg.textContent="✗ Errore di rete (disponibile solo sul sito pubblicato)."; btn.disabled=false; }
 };
-document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });
+
 load();
 </script>
 </body>
