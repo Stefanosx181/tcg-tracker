@@ -137,6 +137,75 @@ def harvest(conn, game_code, set_code, set_name, *,
     return inserted, skipped, len(items), images
 
 
+# Sigle corte per le rarita' verbose (soprattutto Yu-Gi-Oh in giapponese), cosi'
+# il badge nella UI resta leggibile. Le rarita' One Piece sono gia' corte (L, SR/P...).
+_RARITY_SHORT = {
+    "クォーターセンチュリーシークレット": "QCSE",
+    "プリズマティックシークレット": "PSE",
+    "ホログラフィック": "HR",
+    "アルティメット": "UL",
+    "シークレット": "SE",
+    "ウルトラ": "UR",
+    "スーパー": "SR",
+    "ノーマルレア": "NR",
+    "レア": "R",
+    "ノーマル": "N",
+}
+
+
+def _short_rarity(rar):
+    """Rarita' grezza -> sigla corta (mappa nota); invariata se gia' corta/sconosciuta."""
+    if not rar:
+        return rar
+    return _RARITY_SHORT.get(rar.strip(), rar.strip())
+
+
+def _pick_rarity(items, number, variant):
+    """Dagli item CardRush sceglie la rarita' della carta (number+variant).
+    Preferisce l'item con/ senza marcatore パラレル coerente con la variante."""
+    is_par_target = (variant == "parallel")
+    matched = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        model = str(it.get("model_number", ""))
+        if not (model == number or model.split("/")[0] == number):
+            continue
+        is_par = "パラレル" in (it.get("extra_difference") or "")
+        (matched if is_par == is_par_target else []).append(it)
+    pool = matched or [it for it in items if isinstance(it, dict)
+                       and str(it.get("model_number", "")) == number]
+    for it in pool:
+        if it.get("rarity"):
+            return it.get("rarity")
+    return None
+
+
+def enrich_rarity(conn, game_code, set_code, *, client=None):
+    """Riempie tcg_card.rarity per le carte del set leggendola da CardRush
+    (la fonte espone `rarity`). Ritorna (aggiornate, totali)."""
+    client = client or sc._default_client()
+    rows = conn.execute("""SELECT c.id, c.number, c.variant, c.cardrush_url
+                           FROM tcg_card c JOIN tcg_set s ON s.id = c.set_id
+                           WHERE s.game_code=? AND s.set_code=?""",
+                        (game_code, set_code)).fetchall()
+    updated = 0
+    for cid, number, variant, url in rows:
+        if not url:
+            continue
+        try:
+            items = sc.parse_cardrush(client.get(url).text)
+        except Exception as e:
+            print(f"    rarity KO {number}: {e}")
+            continue
+        rar = _short_rarity(_pick_rarity(items, number, variant or ""))
+        if rar:
+            conn.execute("UPDATE tcg_card SET rarity=? WHERE id=?", (rar, cid))
+            updated += 1
+    conn.commit()
+    return updated, len(rows)
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="Cataloga un set OP/YGO da Yuyu-tei nel DB v2.")
     ap.add_argument("game", choices=["onepiece", "yugioh", "pokemon"])
@@ -147,6 +216,8 @@ def main(argv):
     ap.add_argument("--order", type=int, default=100, help="display_order del set")
     ap.add_argument("--images", metavar="DIR", nargs="?", const=_DEFAULT_IMAGES,
                     help="scarica le immagini carta in DIR (default dashboard/images)")
+    ap.add_argument("--rarity", action="store_true",
+                    help="riempi la rarita' delle carte del set da CardRush")
     args = ap.parse_args(argv)
 
     conn = db.get_conn() if not args.db else __import__("sqlite3").connect(args.db)
@@ -158,6 +229,9 @@ def main(argv):
         extra = f", {imgs} immagini" if args.images else ""
         print(f"{args.game}/{args.set_code}: pagina {rows} righe -> "
               f"{ins} carte nuove, {skip} gia' presenti{extra}.")
+        if args.rarity:
+            up, tot = enrich_rarity(conn, args.game, args.set_code)
+            print(f"  rarita': {up}/{tot} carte aggiornate da CardRush.")
     finally:
         conn.close()
     return 0

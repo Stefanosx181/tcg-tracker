@@ -88,6 +88,21 @@ def test_download_image_offline(tmp_path):
     assert url.startswith("images/") and url.endswith(".jpg")
 
 
+def test_pick_rarity_offline():
+    # dalla pagina CardRush OP01-001 (fixture) ricava la rarita' della carta
+    import scrapers as sc
+    items = sc.parse_cardrush(
+        (ROOT / "tests" / "fixtures" / "cardrush_op_OP01-001.html").read_text(encoding="utf-8"))
+    rar = bc._pick_rarity(items, "OP01-001", "")
+    assert rar == "L"
+
+
+def test_short_rarity():
+    assert bc._short_rarity("クォーターセンチュリーシークレット") == "QCSE"
+    assert bc._short_rarity("SR/P") == "SR/P"   # gia' corta -> invariata
+    assert bc._short_rarity("") == ""
+
+
 def test_harvest_yugioh_offline():
     conn = _fresh_v2()
     ins, skip, rows, imgs = bc.harvest(conn, "yugioh", "QCCU", "Quarter Century", html=QCCU)

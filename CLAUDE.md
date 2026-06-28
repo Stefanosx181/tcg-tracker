@@ -171,7 +171,8 @@ con stato (aggiornalo a fine fase):
       buylist+trend per gioco. ✅ DATI REALI sul DB (2026-06-28): One Piece `OP01` (43 carte) +
       Yu-Gi-Oh `QCCU` (200 carte), catalogo costruito con `build_catalog.py` (harvest da Yuyu-tei)
       e prezzi scrapati live (`run.py --game`); IMMAGINI carta scaricate da Yuyu-tei
-      (`build_catalog.py --images`). One Piece: standard + variante parallel.
+      (`build_catalog.py --images`); RARITÀ da CardRush (`--rarity`, normalizzata in sigle
+      corte: OP L/SR/SEC/UC/C + `/P` parallel, YGO QCSE). One Piece: standard + variante parallel.
       ⚠️ YGO: lo stesso set code ha piu' rarita'/versioni (CardRush distingue per rarita', Yuyu-tei
       per suffisso nome); senza disambiguazione fine la scelta 'standard' prende il max per fonte
       (puo' essere una stampa diversa tra CR e Yuyu-tei). Migliorabile in Fase 3 (intelligence).
