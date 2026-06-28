@@ -78,6 +78,11 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   (aggancio anti-outlier/stale 3.1 → niente falsi segnali). Soglie `move_pct`/`spread_pct`
   (default 15/20%) parametri di `export_web`. `dispatch_alerts(payload, hook)` = aggancio per
   notifiche FUTURE (no-op di default; `export_web(..., alert_hook=)`).
+- `src/build_catalog.py` — HARVESTER del catalogo OP/YGO: dalla pagina-set Yuyu-tei
+  (`/buy/{opc|ygo}/s/{set}`, che elenca tutte le carte) costruisce le righe `tcg_card` nel DB v2
+  (identita' canonica `(set, number, variant)`, standard vs `parallel` dal nome, URL CardRush
+  per gioco; idempotente). Uso: `python src/build_catalog.py onepiece OP01 "ROMANCE DAWN"`
+  (`--html` per cataloghare offline da una fixture). Test: `tests/test_build_catalog.py`.
 - `db/seed_onepiece_sample.sql`, `db/seed_yugioh_sample.sql` — seed di PROVA One Piece (OP01,
   standard + variante parallel) e Yu-Gi-Oh (QCCU-JP002), per il sandbox `tcg_tracker.backup.db`
 - `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; cicla sul registry
