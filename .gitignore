@@ -28,3 +28,7 @@ tcg_tracker.backup.db
 !.dev.vars.example
 .env*
 !.env.example
+
+# backup locali pre-migrazione DB (non committare)
+*.premig.bak
+*.predashboard.bak.db
