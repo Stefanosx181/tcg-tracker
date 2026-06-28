@@ -29,7 +29,7 @@ def _fresh_v2():
 
 def test_harvest_onepiece_set_offline():
     conn = _fresh_v2()
-    ins, skip, rows = bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)
+    ins, skip, rows, imgs = bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)
     assert rows == 44                       # righe nella pagina-set
     assert ins == 43 and skip == 0          # 43 carte canoniche (1 dup collassato)
     n = conn.execute("SELECT COUNT(*) FROM tcg_card c JOIN tcg_set s ON s.id=c.set_id"
@@ -56,13 +56,41 @@ def test_cardrush_url_per_gioco():
 def test_idempotente():
     conn = _fresh_v2()
     bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)
-    ins2, skip2, _ = bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)
+    ins2, skip2, _, _ = bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)
     assert ins2 == 0 and skip2 == 43        # rilancio: niente di nuovo
+
+
+def test_image_url_salvata_offline():
+    # senza images_dir l'harvester salva comunque l'URL remoto dell'immagine
+    conn = _fresh_v2()
+    bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN", html=OP01)
+    url = conn.execute("SELECT image_url FROM tcg_card WHERE number='OP01-120'"
+                       " AND variant='' LIMIT 1").fetchone()[0]
+    assert url and url.startswith("https://card.yuyu-tei.jp")
+
+
+def test_download_image_offline(tmp_path):
+    # esercita il percorso di download con un client finto (nessuna rete):
+    # le immagini finiscono in images_dir e image_url diventa un path locale.
+    class FakeResp:
+        content = b"\xff\xd8\xff\xe0fake-jpeg"
+    class FakeClient:
+        def get(self, url): return FakeResp()
+    conn = _fresh_v2()
+    ins, skip, rows, imgs = bc.harvest(conn, "onepiece", "OP01", "ROMANCE DAWN",
+                                       html=OP01, client=FakeClient(),
+                                       images_dir=str(tmp_path))
+    assert imgs > 0
+    files = list(tmp_path.glob("*.jpg"))
+    assert files, "nessuna immagine scaricata"
+    url = conn.execute("SELECT image_url FROM tcg_card WHERE number='OP01-120'"
+                       " AND variant='parallel'").fetchone()[0]
+    assert url.startswith("images/") and url.endswith(".jpg")
 
 
 def test_harvest_yugioh_offline():
     conn = _fresh_v2()
-    ins, skip, rows = bc.harvest(conn, "yugioh", "QCCU", "Quarter Century", html=QCCU)
+    ins, skip, rows, imgs = bc.harvest(conn, "yugioh", "QCCU", "Quarter Century", html=QCCU)
     assert ins == 1                         # la fixture YGO contiene una sola carta canonica
     src = {s for (s,) in conn.execute("SELECT source_code FROM tcg_source")}
     assert "yuyutei" in src                 # la sorgente Yuyu-tei viene registrata

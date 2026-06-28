@@ -193,7 +193,9 @@ const gamesPresent = ()=>{ const have=new Set(SETS.map(s=>s.game).filter(Boolean
   return [...GAME_ORDER.filter(g=>have.has(g)), ...[...have].filter(g=>!GAME_ORDER.includes(g))]; };
 const qval = ()=>document.getElementById("search").value.trim().toLowerCase();
 const setFilter = ()=>document.getElementById("setFilter").value;
-const imgSrc = c => `images/${c.pack_code}_${c.model_number}.webp`;
+// OP/YGO: path immagine esplicito da Yuyu-tei (campo `image`); Pokémon: path
+// ricostruito dalle colonne legacy come prima.
+const imgSrc = c => c.image || `images/${c.pack_code}_${c.model_number}.webp`;
 
 // Fonti generiche: ogni gioco usa la sua coppia (Pokémon=cardrush+hareruya,
 // One Piece=cardrush+yuyutei...). La dashboard si adatta alle fonti presenti.

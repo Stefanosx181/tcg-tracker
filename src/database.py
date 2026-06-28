@@ -46,6 +46,18 @@ def ensure_intelligence_columns(conn):
     conn.commit()
 
 
+def ensure_image_column(conn):
+    """Aggiunge a tcg_card la colonna image_url se manca (idempotente).
+
+    Serve a OP/YGO (le immagini arrivano da Yuyu-tei via build_catalog.py); per i
+    Pokémon resta NULL e la UI ricostruisce il path locale come prima."""
+    cur = conn.cursor()
+    cols = {r[1] for r in cur.execute("PRAGMA table_info(tcg_card)")}
+    if "image_url" not in cols:
+        cur.execute("ALTER TABLE tcg_card ADD COLUMN image_url TEXT")
+        conn.commit()
+
+
 def fetch_cards(conn):
     """Tutte le carte da scrapare (codice + url cardrush + model number).
 
@@ -295,6 +307,7 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
 
     os.makedirs(out_dir, exist_ok=True)
     ensure_intelligence_columns(conn)
+    ensure_image_column(conn)
     generated_at = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cur = conn.cursor()
 
@@ -317,22 +330,27 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         prices_by_card.setdefault(cid, {})[src] = {
             "price": raw, "comm": norm, "stock": stock,
             "status": status, "outlier": outlier}
-    cur.execute("""SELECT c.id, g.game_code, c.number FROM tcg_card c
+    cur.execute("""SELECT c.id, g.game_code, c.number, c.image_url FROM tcg_card c
                    JOIN tcg_set s ON s.id = c.set_id
                    JOIN tcg_game g ON g.game_code = s.game_code""")
-    meta_by_card = {cid: (game, number) for cid, game, number in cur.fetchall()}
+    meta_by_card = {cid: (game, number, image)
+                    for cid, game, number, image in cur.fetchall()}
     # ordine di preferenza fonti (per il tie-break di best_source, come il v1)
     src_order = ["cardrush", "hareruya", "yuyutei"]
     for r in rows:
         cid = r["card_id"]
         pr = prices_by_card.get(cid, {})
         r["prices"] = pr
-        game, number = meta_by_card.get(cid, (None, None))
+        game, number, image = meta_by_card.get(cid, (None, None, None))
         r["game"] = game
         # OP/YGO non hanno il card_code legacy: esponi il numero canonico
         # (es. OP01-120) come codice, cosi' la carta resta identificabile nella UI.
         if not r.get("card_code"):
             r["card_code"] = number
+        # immagine locale (OP/YGO da Yuyu-tei); per i Pokémon resta None e la UI
+        # ricostruisce il path dalle colonne legacy come prima.
+        if image:
+            r["image"] = image
         best_src, best_val = None, 0
         for src in sorted(pr, key=lambda s: src_order.index(s) if s in src_order else 99):
             v = pr[src]["price"] or 0

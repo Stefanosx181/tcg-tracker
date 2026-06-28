@@ -350,10 +350,12 @@ YUYUTEI_SELECTORS = {
 
 
 def parse_yuyutei(html: str) -> list:
-    """HTML grezzo di una pagina-set yuyu-tei -> lista di {'number','name','price'}.
+    """HTML grezzo di una pagina-set yuyu-tei -> lista di
+    {'number','name','price','image'}.
 
-    [] se la pagina e' valida ma senza prodotti; LayoutError se mancano sia i
-    prodotti sia l'anchor di lista (struttura cambiata)."""
+    'image' = URL dell'immagine della carta sul CDN Yuyu-tei (card.yuyu-tei.jp),
+    None se assente. [] se la pagina e' valida ma senza prodotti; LayoutError se
+    mancano sia i prodotti sia l'anchor di lista (struttura cambiata)."""
     soup = BeautifulSoup(html or "", "html.parser")
     cells = soup.select(YUYUTEI_SELECTORS["item"])
     if not cells:
@@ -372,10 +374,17 @@ def parse_yuyutei(html: str) -> list:
             if "円" in st.get_text():
                 price = _to_int_price(st.get_text())
                 break
+        image = None
+        for im in it.select("img"):
+            src = im.get("src") or im.get("data-src") or ""
+            if src.startswith("https://card.yuyu-tei.jp"):
+                image = src
+                break
         out.append({
             "number": num_el.get_text(strip=True),
             "name": name_el.get_text(strip=True),
             "price": price,
+            "image": image,
         })
     return out
 

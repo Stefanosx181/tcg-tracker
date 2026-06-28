@@ -170,7 +170,8 @@ con stato (aggiornalo a fine fase):
       Entrambi FATTI: adapter CardRush (riuso, swap categoria) + Yuyu-tei (per-set) a due fonti,
       buylist+trend per gioco. ✅ DATI REALI sul DB (2026-06-28): One Piece `OP01` (43 carte) +
       Yu-Gi-Oh `QCCU` (200 carte), catalogo costruito con `build_catalog.py` (harvest da Yuyu-tei)
-      e prezzi scrapati live (`run.py --game`). One Piece: standard + variante parallel.
+      e prezzi scrapati live (`run.py --game`); IMMAGINI carta scaricate da Yuyu-tei
+      (`build_catalog.py --images`). One Piece: standard + variante parallel.
       ⚠️ YGO: lo stesso set code ha piu' rarita'/versioni (CardRush distingue per rarita', Yuyu-tei
       per suffisso nome); senza disambiguazione fine la scelta 'standard' prende il max per fonte
       (puo' essere una stampa diversa tra CR e Yuyu-tei). Migliorabile in Fase 3 (intelligence).
@@ -196,8 +197,11 @@ con stato (aggiornalo a fine fase):
       storico). SEPARAZIONE PER GIOCO: schede Pokémon / One Piece / Yu-Gi-Oh in cima (default il
       primo gioco); set-filter, totali e fonti si adattano al gioco attivo → niente più giochi
       mescolati. `app.py` serve gli stessi statici di Cloudflare (localhost == sito).
+      IMMAGINI OP/YGO: scaricate da Yuyu-tei in `dashboard/images/` (43 OP + 200 YGO = 243),
+      colonna `tcg_card.image_url` + campo `image` nel buylist; la UI usa `c.image` se presente,
+      altrimenti il path legacy `.webp` (Pokémon). Harvest con `build_catalog.py … --images`.
       ⚠️ Resta: tradurre i nomi OP/YGO (ora solo JP), indice "Andamento" per-gioco, consumo di
-      `movers.json`, immagini per OP/YGO.
+      `movers.json`.
 - [ ] Fase 5 — scala / ops
 
 Non aggiungere giochi prima dello schema multi-gioco (Fase 1).
