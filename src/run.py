@@ -34,6 +34,7 @@ def main():
     ap = argparse.ArgumentParser(description="TCG Tracker - scraping buying prices")
     sources = [a.source_code for a in ad.ADAPTERS]
     ap.add_argument("--set", help="filtra per pack_code, es. S12A")
+    ap.add_argument("--game", help="filtra per gioco, es. pokemon / onepiece / yugioh")
     ap.add_argument("--limit", type=int, help="max carte (test)")
     ap.add_argument("--only", choices=sources, help="una sola fonte")
     ap.add_argument("--sleep", type=float, default=1.0, help="pausa secondi tra richieste")
@@ -47,6 +48,8 @@ def main():
     cards = db.fetch_cards(conn)
     if args.set:
         cards = [c for c in cards if c["pack_code"].upper() == args.set.upper()]
+    if args.game:
+        cards = [c for c in cards if c["game_code"].lower() == args.game.lower()]
     if args.limit:
         cards = cards[: args.limit]
 
@@ -54,21 +57,24 @@ def main():
     # User-Agent e rate-limiting (la pausa tra richieste e' --sleep).
     client = sc.HttpClient(rate_limit=args.sleep)
 
-    # Fonti dal registry di adapter (filtrate da --only). Aggiungere una fonte
-    # = aggiungere un adapter in adapters.ADAPTERS: qui non si tocca nulla.
-    adapters = ad.get_adapters(args.only)
+    # Adapter candidati (filtrati da --only). La fonte giusta per ogni carta si
+    # sceglie poi per GIOCO (a.supports): es. Hareruya solo Pokémon, Yuyu-tei OP.
+    candidates = ad.get_adapters(args.only)
+    all_sources = [a.source_code for a in candidates]
 
     print(f"Carte da elaborare: {len(cards)}\n")
     # contatori per fonte: servono a capire se un sito ha smesso di rispondere
-    tried = {a.source_code: 0 for a in adapters}
-    found = {a.source_code: 0 for a in adapters}
+    tried = {s: 0 for s in all_sources}
+    found = {s: 0 for s in all_sources}
     # errori di LAYOUT (struttura della pagina cambiata): distinti dal semplice
     # "carta non trovata", servono per un allarme piu' fine (vedi sotto).
-    layout_err = {a.source_code: 0 for a in adapters}
+    layout_err = {s: 0 for s in all_sources}
 
     for i, c in enumerate(cards, 1):
         print(f"[{i}/{len(cards)}] {c['card_code']}  ({c['pack_code']})")
-        for a in adapters:
+        for a in candidates:
+            if not a.supports(c["game_code"]):
+                continue
             src = a.source_code
             try:
                 offer = a.scrape(c, client)         # Offer | None

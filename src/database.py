@@ -29,13 +29,18 @@ def fetch_cards(conn):
     """
     cur = conn.cursor()
     cur.execute("""SELECT c.id               AS id,
+                          g.game_code         AS game_code,
                           s.set_code          AS pack_code,
                           c.legacy_card_code  AS card_code,
                           c.legacy_model_number AS model_number,
+                          c.number            AS number,
+                          c.variant           AS variant,
                           c.name              AS full_name,
                           c.cardrush_url      AS cardrush_url,
                           c.hareruya_url      AS hareruya_url
-                   FROM tcg_card c JOIN tcg_set s ON s.id = c.set_id
+                   FROM tcg_card c
+                   JOIN tcg_set  s ON s.id = c.set_id
+                   JOIN tcg_game g ON g.game_code = s.game_code
                    ORDER BY c.id""")
     return cur.fetchall()
 
@@ -108,6 +113,38 @@ def export_web(conn, out_dir):
     cur.execute("SELECT * FROM v_buylist")
     cols = [d[0] for d in cur.description]
     rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    # Buylist MULTI-FONTE: oltre alle colonne legacy (cardrush_*/hareruya_*, che
+    # restano per la retro-compat) aggiungiamo per ogni carta una mappa generica
+    # 'prices' {source_code: {price, comm, stock}} e il 'game', cosi' i giochi con
+    # una seconda fonte diversa (es. One Piece: cardrush + yuyutei) compaiono nella
+    # buylist. best_price/best_source vengono RICALCOLATI su tutte le fonti presenti
+    # (per Pokémon = stesse due fonti -> valori invariati).
+    cur.execute("""SELECT card_id, source_code, price_raw, price_norm, in_stock
+                   FROM v_latest_price""")
+    prices_by_card = {}
+    for cid, src, raw, norm, stock in cur.fetchall():
+        prices_by_card.setdefault(cid, {})[src] = {
+            "price": raw, "comm": norm, "stock": stock}
+    cur.execute("""SELECT c.id, g.game_code FROM tcg_card c
+                   JOIN tcg_set s ON s.id = c.set_id
+                   JOIN tcg_game g ON g.game_code = s.game_code""")
+    game_by_card = dict(cur.fetchall())
+    # ordine di preferenza fonti (per il tie-break di best_source, come il v1)
+    src_order = ["cardrush", "hareruya", "yuyutei"]
+    for r in rows:
+        cid = r["card_id"]
+        pr = prices_by_card.get(cid, {})
+        r["prices"] = pr
+        r["game"] = game_by_card.get(cid)
+        best_src, best_val = None, 0
+        for src in sorted(pr, key=lambda s: src_order.index(s) if s in src_order else 99):
+            v = pr[src]["price"] or 0
+            if v > best_val:
+                best_val, best_src = v, src
+        r["best_price"] = best_val
+        r["best_source"] = best_src
+
     json.dump({"generated_at": generated_at, "rows": rows},
               open(os.path.join(out_dir, "buylist.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
@@ -154,36 +191,37 @@ def export_web(conn, out_dir):
         return out
 
     def _collect(card_ids):
-        """{source: {date: {card_id: price}}} per i card_id indicati."""
-        acc = {"cardrush": {}, "hareruya": {}}
+        """{source: {date: {card_id: price}}} per i card_id indicati.
+        Le fonti sono dinamiche (cardrush/hareruya per Pokémon, cardrush/yuyutei
+        per One Piece, ecc.): non vanno cablate."""
+        acc = {}
         for cid in card_ids:
             for src, pts in series.get(cid, {}).items():
                 for day, price in pts:
                     if price is None:
                         continue
-                    acc[src].setdefault(day, {})[cid] = price
+                    acc.setdefault(src, {}).setdefault(day, {})[cid] = price
         return acc
+
+    def _index_entry(acc):
+        """Indice per ciascuna fonte presente in acc -> {source: serie}."""
+        entry = {}
+        for src, by_date in acc.items():
+            s = _index(by_date)
+            if s:
+                entry[src] = s
+        return entry
 
     set_index = {}
     by_set = {}
     for cid, sname in card_set.items():
         by_set.setdefault(sname, []).append(cid)
     for sname, cids in by_set.items():
-        acc = _collect(cids)
-        entry = {}
-        for src in ("cardrush", "hareruya"):
-            s = _index(acc[src])
-            if s:
-                entry[src] = s
+        entry = _index_entry(_collect(cids))
         if entry:
             set_index[sname] = entry
 
-    glob = {}
-    acc_all = _collect(list(card_set))
-    for src in ("cardrush", "hareruya"):
-        s = _index(acc_all[src])
-        if s:
-            glob[src] = s
+    glob = _index_entry(_collect(list(card_set)))
 
     json.dump({"generated_at": generated_at, "sets": set_index, "global": glob},
               open(os.path.join(out_dir, "setindex.json"), "w", encoding="utf-8"),

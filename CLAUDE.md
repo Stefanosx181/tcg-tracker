@@ -45,10 +45,12 @@ ufficiale che loro si aspettano di vedere.
 
 ```
 Excel (seed) → db/ SQL → tcg_tracker.db (SQLite)
-   → src/scrapers.py  (livello basso: HttpClient + parse_* + LayoutError)
-   → src/adapters.py  (SourceAdapter per fonte: build_query/fetch/parse→Offer; registry ADAPTERS)
-   → src/run.py       (orchestratore: cicla sul registry + salva storico + export)
-   → src/database.py  (accesso DB, save_price con carry-forward, export_web → JSON)
+   → src/scrapers.py  (livello basso: HttpClient + parse_cardrush/hareruya/yuyutei + LayoutError)
+   → src/adapters.py  (SourceAdapter per fonte: build_query/fetch/parse→Offer; registry ADAPTERS;
+                       routing per GIOCO via a.supports(game): Pokémon=cardrush+hareruya,
+                       One Piece=cardrush+yuyutei)
+   → src/run.py       (orchestratore: per ogni carta cicla gli adapter del suo gioco; --game/--set)
+   → src/database.py  (accesso DB, save_price con carry-forward, export_web → JSON multi-fonte)
    → dashboard/data/*.json (buylist.json, history.json, setindex.json)
    → dashboard/ (statica, Cloudflare Pages)
 GitHub Actions (.github/workflows/scrape.yml, cron settimanale) → commit DB+JSON
@@ -60,9 +62,13 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   User-Agent, rate-limit) + `parse_cardrush`/`parse_hareruya` (HTML/JSON grezzo → lista, offline)
   + helper. `LayoutError` = struttura pagina cambiata (≠ "0 risultati"). Selettori in `HARERUYA_SELECTORS`.
 - `src/adapters.py` — interfaccia `SourceAdapter` (`build_query`/`fetch`/`parse`→`Offer`, +
-  `select`/`scrape` condivisi) e i due adapter `CardRushAdapter`/`HareruyaAdapter`; registry
-  `ADAPTERS`. Aggiungere una fonte = aggiungere un adapter qui (vedi `docs/ADAPTERS.md`).
-- `src/database.py` — `save_price` (carry-forward), `export_web` (genera i JSON + indice set)
+  `select` variant-aware/`scrape` condivisi, `supports(game)`) e gli adapter `CardRushAdapter`
+  (tutti i giochi), `HareruyaAdapter` (solo Pokémon), `YuyuteiAdapter` (One Piece, per-set con
+  cache). Registry `ADAPTERS`. Aggiungere una fonte = aggiungere un adapter qui (vedi `docs/ADAPTERS.md`).
+- `src/database.py` — `save_price` (carry-forward), `export_web` (JSON multi-fonte: ogni riga
+  buylist ha `prices`{source:…} + `game`, `best_*` su tutte le fonti; indice/trend per fonte dinamica)
+- `db/seed_onepiece_sample.sql` — seed di PROVA One Piece (OP01, standard + variante parallel),
+  per il sandbox `tcg_tracker.backup.db` (non per il reale)
 - `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; cicla sul registry
   `ADAPTERS` (no fonti hard-coded), `HttpClient` condiviso, conta i `LayoutError` per l'allarme per-fonte.
 - `src/init_db.py` — crea/aggiorna il DB (idempotente): bootstrap v1 dal seed → migra a v2;
@@ -81,9 +87,10 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 python src/init_db.py            # crea/aggiorna DB v1->v2 (storico preservato)
 python src/run.py --limit 3      # test scraping su 3 carte
 python src/run.py --set S12A     # un solo set
+python src/run.py --game onepiece  # solo One Piece (adapter cardrush+yuyutei)
 python src/run.py --only cardrush
 python db/migrate_001_multigame.py tcg_tracker.backup.db  # migrazione su un file specifico
-pytest                           # test scraper+migrazione offline (usa tests/fixtures/)
+pytest                           # test scraper+migrazione+adapter offline (usa tests/fixtures/)
 ```
 
 ---
@@ -130,7 +137,11 @@ con stato (aggiornalo a fine fase):
       identità canonica + source + price raw/norm; migrazione id-preserving v1→v2 con diff-zero
       su buylist/indice; viste con alias v1). ⚠️ Il DB reale va migrato col `via`: alla prossima
       `init_db` (cron o manuale) viene aggiornato a v2 automaticamente.
-- [ ] Fase 2 — One Piece, Yu-Gi-Oh
+- [~] Fase 2 — One Piece, Yu-Gi-Oh
+      One Piece FATTO: adapter CardRush (riuso) + Yuyu-tei (nuovo, per-set), numerazione OP01-001,
+      varianti parallel, buylist+trend a due fonti (cardrush+yuyutei). Validato sul backup
+      (seed `db/seed_onepiece_sample.sql`), Pokémon invariato. Yu-Gi-Oh ANCORA da fare
+      (abilitare `YuyuteiAdapter.games` a 'yugioh' + fonte/seed YGO).
 - [ ] Fase 3 — intelligence prezzi
 - [ ] Fase 4 — UX
 - [ ] Fase 5 — scala / ops

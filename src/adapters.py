@@ -64,6 +64,15 @@ def _field(card, key, default=None):
 class SourceAdapter(ABC):
     source_code: str = ""            # es. 'cardrush' (= tcg_source.source_code)
     display_name: str = ""
+    games = None                     # None = tutti i giochi; altrimenti set/lista di game_code
+
+    # Mappa variante canonica -> token (giapponese) da cercare nel marcatore grezzo
+    # della fonte (extra_difference su CardRush, suffisso del nome su Yuyu-tei).
+    _VARIANT_TOKENS = {"parallel": "パラレル"}
+
+    def supports(self, game_code) -> bool:
+        """Questa fonte copre il gioco indicato? (Hareruya = solo Pokémon, ecc.)"""
+        return self.games is None or game_code in self.games
 
     @abstractmethod
     def build_query(self, card) -> Query:
@@ -79,14 +88,26 @@ class SourceAdapter(ABC):
         Solleva sc.LayoutError se la struttura attesa non e' riconoscibile."""
 
     # --- comportamento condiviso -------------------------------------
-    def select(self, offers: list):
-        """Sceglie l'offerta finale: preferisci la STANDARD (variant==''), poi il
-        prezzo piu' alto. Le varianti si usano solo se non c'e' nessuna standard."""
+    def variant_matches(self, raw_variant: str, target: str) -> bool:
+        """Il marcatore grezzo dell'offerta corrisponde alla variante canonica target?"""
+        tok = self._VARIANT_TOKENS.get(target)
+        return bool(tok and raw_variant and tok in raw_variant)
+
+    def select(self, offers: list, query: "Query | None" = None):
+        """Sceglie l'offerta finale in base alla variante richiesta dalla carta:
+          - variante '' (standard): preferisci le offerte standard (marcatore vuoto),
+            altrimenti ripiega su qualsiasi offerta — comportamento Pokémon invariato;
+          - variante non vuota (es. 'parallel'): solo le offerte il cui marcatore
+            corrisponde (via variant_matches). Tra le candidate vince il prezzo piu' alto."""
         if not offers:
             return None
-        standard = [o for o in offers if not o.variant]
-        pool = standard or offers
-        return max(pool, key=lambda o: o.price)
+        target = (query.match.get("variant") if query else "") or ""
+        if not target:
+            standard = [o for o in offers if not o.variant]
+            pool = standard or offers
+        else:
+            pool = [o for o in offers if self.variant_matches(o.variant, target)]
+        return max(pool, key=lambda o: o.price) if pool else None
 
     def scrape(self, card, client: "sc.HttpClient | None" = None):
         """Orchestra build_query -> fetch -> parse -> select. Ritorna Offer|None.
@@ -101,7 +122,7 @@ class SourceAdapter(ABC):
             print(f"  [{self.source_code}] errore rete: {e}")
             return None
         offers = self.parse(raw, q)          # puo' sollevare LayoutError
-        return self.select(offers)
+        return self.select(offers, q)
 
 
 # ----------------------------------------------------------------------
@@ -115,8 +136,9 @@ class CardRushAdapter(SourceAdapter):
         url = _field(card, "cardrush_url", "")
         qs = urlparse.parse_qs(urlparse.urlparse(url).query)
         return Query(url=url, match={
-            "model": (qs.get("model_number") or [""])[0].strip(),
-            "pack":  (qs.get("pack_code") or [""])[0].strip(),
+            "model":   (qs.get("model_number") or [""])[0].strip(),
+            "pack":    (qs.get("pack_code") or [""])[0].strip(),
+            "variant": _field(card, "variant", "") or "",
         })
 
     def fetch(self, query: Query, client) -> str:
@@ -155,6 +177,7 @@ class CardRushAdapter(SourceAdapter):
 class HareruyaAdapter(SourceAdapter):
     source_code = "hareruya"
     display_name = "Hareruya"
+    games = {"pokemon"}              # hare2buy.com copre SOLO Pokémon (vedi docs/SOURCES.md)
 
     def build_query(self, card) -> Query:
         model = _field(card, "model_number", "")
@@ -192,13 +215,67 @@ class HareruyaAdapter(SourceAdapter):
 
 
 # ----------------------------------------------------------------------
+# Yuyu-tei (yuyu-tei.jp) — fonte buyback per-set (HTML statico)
+# ----------------------------------------------------------------------
+class YuyuteiAdapter(SourceAdapter):
+    source_code = "yuyutei"
+    display_name = "Yuyu-tei"
+    games = {"onepiece"}             # per ora One Piece (Yu-Gi-Oh si abilita a parte)
+
+    # segmento di percorso per gioco: /buy/{seg}/s/{set}
+    GAME_SEGMENT = {"pokemon": "poke", "onepiece": "opc", "yugioh": "ygo"}
+    BASE = "https://yuyu-tei.jp/buy/{seg}/s/{set_code}"
+
+    def __init__(self):
+        # cache per-run: la pagina-set elenca TUTTE le carte del set, quindi la
+        # scarichiamo una volta sola anche se piu' carte dello stesso set la usano.
+        self._cache = {}
+
+    def build_query(self, card) -> Query:
+        seg = self.GAME_SEGMENT.get(_field(card, "game_code", ""))
+        set_code = _field(card, "pack_code", "")
+        number = _field(card, "number", "") or _field(card, "card_code", "")
+        if not (seg and set_code and number):
+            return Query(url="", match={})
+        url = self.BASE.format(seg=seg, set_code=set_code.lower())
+        return Query(url=url, match={
+            "number": number,
+            "variant": _field(card, "variant", "") or "",
+        })
+
+    def fetch(self, query: Query, client) -> str:
+        if query.url not in self._cache:
+            self._cache[query.url] = client.get(query.url).text
+        return self._cache[query.url]
+
+    def parse(self, raw: str, query: Query) -> list:
+        items = sc.parse_yuyutei(raw)        # puo' sollevare LayoutError
+        want = (query.match.get("number") or "").upper()
+        offers = []
+        for it in items:
+            if (it.get("number") or "").upper() != want:
+                continue
+            p = it.get("price")
+            if not p:
+                continue
+            # la variante (parallel) e' nel nome: la teniamo come marcatore grezzo
+            name = it.get("name", "")
+            variant = "パラレル" if "パラレル" in name else ""
+            offers.append(Offer(price=p, variant=variant))
+        return offers
+
+
+# ----------------------------------------------------------------------
 # Registry
 # ----------------------------------------------------------------------
-ADAPTERS = [CardRushAdapter(), HareruyaAdapter()]
+ADAPTERS = [CardRushAdapter(), HareruyaAdapter(), YuyuteiAdapter()]
 
 
-def get_adapters(only: str = None):
-    """Adapter del registry, eventualmente filtrati per source_code (flag --only)."""
+def get_adapters(only: str = None, game: str = None):
+    """Adapter del registry, filtrati per source_code (--only) e/o per gioco supportato."""
+    out = list(ADAPTERS)
     if only:
-        return [a for a in ADAPTERS if a.source_code == only]
-    return list(ADAPTERS)
+        out = [a for a in out if a.source_code == only]
+    if game:
+        out = [a for a in out if a.supports(game)]
+    return out

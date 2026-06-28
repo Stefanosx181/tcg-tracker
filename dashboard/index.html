@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   :root{ --bg:#0f1320; --card:#161b2c; --card2:#1b2236; --line:#27304a; --txt:#e6e9f2;
-         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --best:#3ddc97; --stale:#d9b36b; }
+         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --yt:#c08af5; --best:#3ddc97; --stale:#d9b36b; }
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
        background:var(--bg);color:var(--txt);font-size:14px;
@@ -47,6 +47,7 @@
   .set-tot{margin-left:auto;display:flex;gap:22px;font-size:13px;font-variant-numeric:tabular-nums}
   .set-tot .lbl{color:var(--muted);font-size:11px;display:block}
   .set-tot .cr{color:var(--cr);font-weight:700} .set-tot .hr{color:var(--hr);font-weight:700}
+  .set-tot .yt{color:var(--yt);font-weight:700}
   .caret{color:var(--muted);font-size:13px;width:14px}
 
   /* griglia card */
@@ -66,13 +67,13 @@
   .prices{display:grid;grid-template-columns:1fr;gap:6px}
   .prow{display:flex;align-items:center;gap:7px;font-size:13px;font-variant-numeric:tabular-nums}
   .prow .tag{font-size:10px;font-weight:700;width:24px}
-  .prow .tag.cr{color:var(--cr)} .prow .tag.hr{color:var(--hr)}
+  .prow .tag.cr{color:var(--cr)} .prow .tag.hr{color:var(--hr)} .prow .tag.yt{color:var(--yt)}
   .prow .val{font-weight:600}
   .prow .w{color:var(--muted);font-size:11px;margin-left:auto}
   .prow.stale .val{font-style:italic;color:var(--stale)}
   .bar{height:4px;border-radius:3px;background:#0a0d16;overflow:hidden;margin-top:3px}
   .bar i{display:block;height:100%}
-  .bar i.cr{background:var(--cr)} .bar i.hr{background:var(--hr)}
+  .bar i.cr{background:var(--cr)} .bar i.hr{background:var(--hr)} .bar i.yt{background:var(--yt)}
   .empty{padding:50px;text-align:center;color:var(--muted)}
 
   /* modal grafico */
@@ -164,10 +165,7 @@
       <button class="toggle" id="mToggle" hidden>Indice 100</button>
       <button class="x" id="mClose">×</button>
     </div>
-    <div class="legend">
-      <span><span class="dot" style="background:var(--cr)"></span>CardRush</span>
-      <span><span class="dot" style="background:var(--hr)"></span>Hareruya</span>
-    </div>
+    <div class="legend" id="mLegend"></div>
     <div class="chart-box"><canvas id="mCanvas"></canvas></div>
   </div>
 </div>
@@ -182,6 +180,20 @@ const qval = ()=>document.getElementById("search").value.trim().toLowerCase();
 const setFilter = ()=>document.getElementById("setFilter").value;
 const imgSrc = c => `images/${c.pack_code}_${c.model_number}.webp`;
 
+// Fonti generiche: ogni gioco usa la sua coppia (Pokémon=cardrush+hareruya,
+// One Piece=cardrush+yuyutei...). La dashboard si adatta alle fonti presenti.
+const SRC_ORDER = ["cardrush","hareruya","yuyutei"];
+const SRC_META = {
+  cardrush:{tag:"CR",cls:"cr",name:"CardRush",color:"#5aa9ff"},
+  hareruya:{tag:"HR",cls:"hr",name:"Hareruya",color:"#ff8a5a"},
+  yuyutei:{tag:"YT",cls:"yt",name:"Yuyu-tei",color:"#c08af5"},
+};
+const priceOf = (c,s)=> (c.prices && c.prices[s]) ? c.prices[s].price : null;
+const stockOf = (c,s)=> (c.prices && c.prices[s]) ? c.prices[s].stock : null;
+const setSources = s =>{ const have=new Set();
+  s.cards.forEach(c=>SRC_ORDER.forEach(x=>{ if(c.prices&&c.prices[x]) have.add(x); }));
+  return SRC_ORDER.filter(x=>have.has(x)); };
+
 async function load(){
   const [b,h,si] = await Promise.all([
     fetch("./data/buylist.json").then(r=>r.json()),
@@ -193,9 +205,11 @@ async function load(){
   buildSets();
   const sel=document.getElementById("setFilter");
   SETS.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s.name; sel.appendChild(o); });
-  const gcr=SETS.reduce((a,s)=>a+s.totalCR,0), ghr=SETS.reduce((a,s)=>a+s.totalHR,0);
-  document.getElementById("grand").innerHTML =
-    `Totale — CardRush <b>${YEN(gcr)}</b> · Hareruya <span class="hr">${YEN(ghr)}</span>`;
+  const grandTotals={};
+  SETS.forEach(s=> s.sources.forEach(src=>{ grandTotals[src]=(grandTotals[src]||0)+(s.totals[src]||0); }));
+  const gparts=SRC_ORDER.filter(src=>src in grandTotals).map(src=>
+    `${SRC_META[src].name} <span style="color:var(--${SRC_META[src].cls});font-weight:700">${YEN(grandTotals[src])}</span>`);
+  document.getElementById("grand").innerHTML = gparts.length ? "Totale — "+gparts.join(" · ") : "";
   render();
 }
 
@@ -207,11 +221,16 @@ function buildSets(){
   }
   SETS=[...map.values()].sort((a,b)=>(a.order-b.order)||a.name.localeCompare(b.name));
   for(const s of SETS){
-    s.totalCR=s.cards.reduce((a,c)=>a+(c.cardrush_price||0),0);
-    s.totalHR=s.cards.reduce((a,c)=>a+(c.hareruya_price||0),0);
+    s.sources = setSources(s);              // fonti presenti in questo set
+    s.totals = {};
+    for(const src of s.sources)
+      s.totals[src] = s.cards.reduce((a,c)=>a+(priceOf(c,src)||0),0);
     for(const c of s.cards){
-      c._wCR = (c.cardrush_price && s.totalCR) ? c.cardrush_price/s.totalCR*100 : null;
-      c._wHR = (c.hareruya_price && s.totalHR) ? c.hareruya_price/s.totalHR*100 : null;
+      c._w = {};
+      for(const src of s.sources){
+        const p=priceOf(c,src), tot=s.totals[src];
+        c._w[src] = (p && tot) ? p/tot*100 : null;
+      }
     }
   }
 }
@@ -239,14 +258,13 @@ function render(){
     shown++;
     const isCol = collapsed.has(s.name);
 
+    const totHtml = s.sources.map(src=>
+      `<div><span class="lbl">${SRC_META[src].name}</span><span class="${SRC_META[src].cls}">${YEN(s.totals[src])}</span></div>`).join("");
     const head=document.createElement("div"); head.className="set-head";
     head.innerHTML =
       `<span class="caret">${isCol?'▸':'▾'}</span>
        <h2>${esc(s.name)}</h2><span class="count">${s.cards.length} carte</span>
-       <div class="set-tot">
-         <div><span class="lbl">CardRush</span><span class="cr">${YEN(s.totalCR)}</span></div>
-         <div><span class="lbl">Hareruya</span><span class="hr">${YEN(s.totalHR)}</span></div>
-       </div>
+       <div class="set-tot">${totHtml}</div>
        <button class="idxbtn" title="Andamento prezzo del set">📈</button>`;
     head.onclick=()=>{ collapsed.has(s.name)?collapsed.delete(s.name):collapsed.add(s.name); render(); };
     const ib=head.querySelector(".idxbtn");
@@ -264,8 +282,7 @@ function render(){
            <div class="nm" title="${esc(c.full_name)}">${esc(c.name_en||c.full_name)}</div>
            <div class="meta"><span class="code">${esc(c.card_code)}</span>${c.rarity?`<span class="rar">${esc(c.rarity)}</span>`:''}</div>
            <div class="prices">
-             ${priceRow('CR','cr',c.cardrush_price,c.cardrush_stock,c._wCR)}
-             ${priceRow('HR','hr',c.hareruya_price,c.hareruya_stock,c._wHR)}
+             ${s.sources.map(src=>priceRow(SRC_META[src].tag,SRC_META[src].cls,priceOf(c,src),stockOf(c,src),(c._w||{})[src])).join("")}
            </div>
          </div>`;
       tile.onclick=()=>openChart(c);
@@ -302,16 +319,22 @@ function closeModal(){ document.getElementById("modal").classList.remove("on"); 
 document.getElementById("mClose").onclick = closeModal;
 document.getElementById("modal").onclick = e=>{ if(e.target.id==="modal") closeModal(); };
 
+// legenda dinamica: mostra solo le fonti effettivamente presenti nei dati
+function setLegend(srcs){
+  document.getElementById("mLegend").innerHTML = srcs.map(src=>
+    `<span><span class="dot" style="background:${SRC_META[src].color}"></span>${SRC_META[src].name}</span>`).join("");
+}
+
 function drawChart(canvas, cardId){
   const s=HIST[String(cardId)]||{};
-  const days=[...new Set([...(s.cardrush||[]),...(s.hareruya||[])].map(p=>p[0]))].sort();
+  const srcs=SRC_ORDER.filter(x=>s[x] && s[x].length);
+  setLegend(srcs);
+  const days=[...new Set(srcs.flatMap(x=>s[x].map(p=>p[0])))].sort();
   const map=arr=>{const m=Object.fromEntries((arr||[]).map(p=>[p[0],p[1]]));return days.map(d=>m[d]??null);};
   if(chart) chart.destroy();
   chart=new Chart(canvas,{type:"line",
-    data:{labels:days,datasets:[
-      {label:"CardRush",data:map(s.cardrush),borderColor:"#5aa9ff",spanGaps:true,tension:.25,pointRadius:3},
-      {label:"Hareruya",data:map(s.hareruya),borderColor:"#ff8a5a",spanGaps:true,tension:.25,pointRadius:3},
-    ]},
+    data:{labels:days,datasets:srcs.map(src=>(
+      {label:SRC_META[src].name,data:map(s[src]),borderColor:SRC_META[src].color,spanGaps:true,tension:.25,pointRadius:3}))},
     options:{maintainAspectRatio:false,plugins:{legend:{display:false},
       tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${YEN(c.parsed.y)}`}}},
       scales:{x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
@@ -320,20 +343,19 @@ function drawChart(canvas, cardId){
 }
 
 function drawIndexChart(canvas, entry, normalize){
-  const cr=entry.cardrush||[], hr=entry.hareruya||[];
-  const days=[...new Set([...cr,...hr].map(p=>p[0]))].sort();
+  const srcs=SRC_ORDER.filter(x=>entry[x] && entry[x].length);
+  setLegend(srcs);
+  const days=[...new Set(srcs.flatMap(x=>entry[x].map(p=>p[0])))].sort();
   const series=arr=>{
-    const m=Object.fromEntries(arr.map(p=>[p[0],p[1]]));
+    const m=Object.fromEntries((arr||[]).map(p=>[p[0],p[1]]));
     let vals=days.map(d=>m[d]??null);
     if(normalize){ const base=vals.find(v=>v!=null); vals=vals.map(v=> v==null?null : +(v/base*100).toFixed(1)); }
     return vals;
   };
   if(chart) chart.destroy();
   chart=new Chart(canvas,{type:"line",
-    data:{labels:days,datasets:[
-      {label:"CardRush",data:series(cr),borderColor:"#5aa9ff",spanGaps:true,tension:.25,pointRadius:3},
-      {label:"Hareruya",data:series(hr),borderColor:"#ff8a5a",spanGaps:true,tension:.25,pointRadius:3},
-    ]},
+    data:{labels:days,datasets:srcs.map(src=>(
+      {label:SRC_META[src].name,data:series(entry[src]),borderColor:SRC_META[src].color,spanGaps:true,tension:.25,pointRadius:3}))},
     options:{maintainAspectRatio:false,plugins:{legend:{display:false},
       tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${normalize?c.parsed.y:("¥"+Number(c.parsed.y).toLocaleString("ja-JP"))}`}}},
       scales:{x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},

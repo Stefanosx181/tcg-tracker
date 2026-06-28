@@ -50,11 +50,13 @@ class _FakeClient:
 # ====================================================================
 # Registry
 # ====================================================================
-def test_registry_has_both_sources():
+def test_registry_sources_and_game_routing():
     codes = [a.source_code for a in ad.ADAPTERS]
-    assert codes == ["cardrush", "hareruya"]
+    assert codes == ["cardrush", "hareruya", "yuyutei"]
     assert ad.get_adapters("hareruya")[0].source_code == "hareruya"
-    assert len(ad.get_adapters()) == 2
+    # routing per gioco: Pokémon = cardrush+hareruya; One Piece = cardrush+yuyutei
+    assert [a.source_code for a in ad.get_adapters(game="pokemon")] == ["cardrush", "hareruya"]
+    assert [a.source_code for a in ad.get_adapters(game="onepiece")] == ["cardrush", "yuyutei"]
 
 
 # ====================================================================
@@ -154,3 +156,85 @@ def test_build_query_empty_when_no_number():
     assert q.url == ""
     # scrape con url vuoto -> None senza neppure chiamare il client
     assert a.scrape(card, _BoomClient()) is None
+
+
+# ====================================================================
+# ONE PIECE — CardRush OP (numerazione OP01-001 + varianti) e Yuyu-tei
+# ====================================================================
+CARDRUSH_OP_HTML = (FIX / "cardrush_op_OP01-001.html").read_text(encoding="utf-8")
+YUYUTEI_OP_HTML = (FIX / "yuyutei_opc_op01.html").read_text(encoding="utf-8")
+
+OP_CARD_STD = {
+    "id": 100, "game_code": "onepiece", "pack_code": "OP01",
+    "card_code": "OP01-001", "model_number": "OP01-001", "number": "OP01-001",
+    "variant": "", "full_name": "ロロノア・ゾロ",
+    "cardrush_url": "https://cardrush.media/onepiece/buying_prices?model_number=OP01-001",
+    "hareruya_url": None,
+}
+OP_CARD_PARALLEL = dict(OP_CARD_STD, id=101, variant="parallel")
+
+
+def test_cardrush_op_standard_picks_extra_difference_empty():
+    a = ad.CardRushAdapter()
+    offer = a.scrape(OP_CARD_STD, _FakeClient(CARDRUSH_OP_HTML))
+    # la standard (extra_difference vuoto) per OP01-001 e' la carta base
+    assert offer is not None and offer.variant == ""
+    assert offer.price == 100
+
+
+def test_cardrush_op_parallel_picks_parallel_listing():
+    a = ad.CardRushAdapter()
+    offer = a.scrape(OP_CARD_PARALLEL, _FakeClient(CARDRUSH_OP_HTML))
+    # la variante 'parallel' deve selezionare il listing con 'パラレル'
+    assert offer is not None and "パラレル" in offer.variant
+    assert offer.price == 30000
+
+
+def test_cardrush_supports_all_games_hareruya_only_pokemon():
+    assert ad.CardRushAdapter().supports("onepiece") is True
+    assert ad.HareruyaAdapter().supports("onepiece") is False
+    assert ad.YuyuteiAdapter().supports("onepiece") is True
+    assert ad.YuyuteiAdapter().supports("pokemon") is False
+
+
+def test_yuyutei_build_query_set_url_opc():
+    a = ad.YuyuteiAdapter()
+    q = a.build_query(OP_CARD_STD)
+    assert q.url == "https://yuyu-tei.jp/buy/opc/s/op01"
+    assert q.match["number"] == "OP01-001"
+
+
+def test_yuyutei_op_standard_and_parallel():
+    a = ad.YuyuteiAdapter()
+    std = a.scrape(OP_CARD_STD, _FakeClient(YUYUTEI_OP_HTML))
+    par = a.scrape(OP_CARD_PARALLEL, _FakeClient(YUYUTEI_OP_HTML))
+    assert std is not None and std.variant == "" and std.price > 0
+    assert par is not None and "パラレル" in par.variant and par.price > 0
+    # la parallel costa piu' della standard (atteso su OP01-001)
+    assert par.price >= std.price
+
+
+def test_yuyutei_parse_layout_error():
+    a = ad.YuyuteiAdapter()
+    q = a.build_query(OP_CARD_STD)
+    with pytest.raises(sc.LayoutError):
+        a.parse("<html>pagina irriconoscibile</html>", q)
+
+
+def test_yuyutei_fetch_caches_set_page():
+    a = ad.YuyuteiAdapter()
+
+    class _CountClient:
+        def __init__(self, raw):
+            self.raw = raw
+            self.calls = 0
+
+        def get(self, url):
+            self.calls += 1
+            class _R: pass
+            r = _R(); r.text = self.raw; return r
+
+    cli = _CountClient(YUYUTEI_OP_HTML)
+    a.scrape(OP_CARD_STD, cli)
+    a.scrape(OP_CARD_PARALLEL, cli)   # stesso set -> deve riusare la cache
+    assert cli.calls == 1

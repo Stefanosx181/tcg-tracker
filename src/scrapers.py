@@ -334,6 +334,52 @@ def scrape_hareruya(card_code: str, pack_code: str = None,
     return pick_hareruya(items, full, pack_code)
 
 
+# ----------------------------------------------------------------------
+# YUYU-TEI (yuyu-tei.jp) - pagina-set buyback (買取), HTML statico
+# ----------------------------------------------------------------------
+# La pagina /buy/{seg}/s/{set} elenca tutte le carte del set in blocchi
+# .card-product: numero in <span class="... border ...">, nome (con eventuale
+# "(パラレル)") in <h4 class="text-primary ...">, prezzo buyback nel primo
+# <strong> che contiene "円". Anchor strutturale: .cards-list.
+YUYUTEI_SELECTORS = {
+    "item":   ".card-product",
+    "number": "span.border",
+    "name":   "h4.text-primary",
+    "anchor": ".cards-list",
+}
+
+
+def parse_yuyutei(html: str) -> list:
+    """HTML grezzo di una pagina-set yuyu-tei -> lista di {'number','name','price'}.
+
+    [] se la pagina e' valida ma senza prodotti; LayoutError se mancano sia i
+    prodotti sia l'anchor di lista (struttura cambiata)."""
+    soup = BeautifulSoup(html or "", "html.parser")
+    cells = soup.select(YUYUTEI_SELECTORS["item"])
+    if not cells:
+        if not soup.select_one(YUYUTEI_SELECTORS["anchor"]):
+            raise LayoutError("yuyu-tei: nessun .card-product ne' anchor (layout cambiato?)")
+        return []
+
+    out = []
+    for it in cells:
+        num_el = it.select_one(YUYUTEI_SELECTORS["number"])
+        name_el = it.select_one(YUYUTEI_SELECTORS["name"])
+        if not (num_el and name_el):
+            continue
+        price = None
+        for st in it.select("strong"):
+            if "円" in st.get_text():
+                price = _to_int_price(st.get_text())
+                break
+        out.append({
+            "number": num_el.get_text(strip=True),
+            "name": name_el.get_text(strip=True),
+            "price": price,
+        })
+    return out
+
+
 def polite_sleep(sec=1.0):
     """Deprecata: il rate-limiting e' ora in HttpClient. Mantenuta per compat."""
     time.sleep(sec)
