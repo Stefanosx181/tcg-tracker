@@ -317,17 +317,22 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         prices_by_card.setdefault(cid, {})[src] = {
             "price": raw, "comm": norm, "stock": stock,
             "status": status, "outlier": outlier}
-    cur.execute("""SELECT c.id, g.game_code FROM tcg_card c
+    cur.execute("""SELECT c.id, g.game_code, c.number FROM tcg_card c
                    JOIN tcg_set s ON s.id = c.set_id
                    JOIN tcg_game g ON g.game_code = s.game_code""")
-    game_by_card = dict(cur.fetchall())
+    meta_by_card = {cid: (game, number) for cid, game, number in cur.fetchall()}
     # ordine di preferenza fonti (per il tie-break di best_source, come il v1)
     src_order = ["cardrush", "hareruya", "yuyutei"]
     for r in rows:
         cid = r["card_id"]
         pr = prices_by_card.get(cid, {})
         r["prices"] = pr
-        r["game"] = game_by_card.get(cid)
+        game, number = meta_by_card.get(cid, (None, None))
+        r["game"] = game
+        # OP/YGO non hanno il card_code legacy: esponi il numero canonico
+        # (es. OP01-120) come codice, cosi' la carta resta identificabile nella UI.
+        if not r.get("card_code"):
+            r["card_code"] = number
         best_src, best_val = None, 0
         for src in sorted(pr, key=lambda s: src_order.index(s) if s in src_order else 99):
             v = pr[src]["price"] or 0

@@ -142,12 +142,13 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - Dove esistono **API/dataset ufficiali**, preferiscili allo scraping (più stabili, meno ToS).
 
 ## Trappole note (già individuate — non reintrodurle)
-- **Solo Pokémon ha dati reali**: il DB reale è v2 ma contiene SOLO il catalogo Pokémon (263
-  carte). One Piece/Yu-Gi-Oh hanno solo carte-campione nel sandbox `tcg_tracker.backup.db`
-  (OP=2, YGO=1): manca un CATALOGO reale OP/YGO da scrapare (da costruire da zero). `index.html`
-  legge `prices{}` con fallback ai campi piatti (robustezza per snapshot vecchi).
-- **UI a pagina unica**: `index.html` raggruppa per SET senza separazione per GIOCO. Con dati
-  multi-gioco i tre giochi finirebbero mescolati: serve una separazione per `game` (scheda/filtro).
+- **Catalogo OP/YGO PARZIALE**: il DB reale ha dati VERI per Pokémon (263, 32 set) + One Piece
+  `OP01` (43 carte) + Yu-Gi-Oh `QCCU` (200 carte), scrapati il 2026-06-28. Mancano gli ALTRI set
+  OP/YGO: il catalogo va esteso con `build_catalog.py` set per set. `name_en` per OP/YGO è null
+  (solo nome JP): la UI mostra il nome giapponese finché non si aggiunge la traduzione.
+- **Indice globale mescola i giochi**: il bottone "Andamento" usa `setindex.global` calcolato
+  su TUTTI i set (ora anche OP/YGO): aggregato poco sensato cross-gioco. Da rendere per-gioco.
+  (I 📈 per-set restano corretti.)
 - **best_price = max()**: può catturare una variante/error card invece della standard. Ora il
   flag `is_outlier` (vs mediana storica) la segnala e la vista normalizzata la esclude
   dall'indice, ma la SELEZIONE del best_price è ancora `max()`: migliorabile.
@@ -167,9 +168,9 @@ con stato (aggiornalo a fine fase):
       `game`/`prices{}`/`trend{}`; `index.html` usa lo schema nativo `prices{}`.
 - [x] Fase 2 — One Piece, Yu-Gi-Oh
       Entrambi FATTI: adapter CardRush (riuso, swap categoria) + Yuyu-tei (per-set) a due fonti,
-      buylist+trend per gioco. One Piece: OP01-001 + variante parallel. Yu-Gi-Oh: set code
-      QCCU-JP002 (numerazione PACK-JPnnn). Validati sul backup (seed `db/seed_*_sample.sql`),
-      Pokémon byte-identico sulle chiavi esistenti.
+      buylist+trend per gioco. ✅ DATI REALI sul DB (2026-06-28): One Piece `OP01` (43 carte) +
+      Yu-Gi-Oh `QCCU` (200 carte), catalogo costruito con `build_catalog.py` (harvest da Yuyu-tei)
+      e prezzi scrapati live (`run.py --game`). One Piece: standard + variante parallel.
       ⚠️ YGO: lo stesso set code ha piu' rarita'/versioni (CardRush distingue per rarita', Yuyu-tei
       per suffisso nome); senza disambiguazione fine la scelta 'standard' prende il max per fonte
       (puo' essere una stampa diversa tra CR e Yuyu-tei). Migliorabile in Fase 3 (intelligence).
@@ -190,7 +191,13 @@ con stato (aggiornalo a fine fase):
       ⚠️ Resta: la SELEZIONE del best_price è ancora `max()` (il flag outlier la segnala ma non
       la corregge); disambiguazione fine rarità/stampa YGO (vedi Fase 2). La dashboard non
       consuma ancora `movers.json` (lavoro UX, Fase 4).
-- [ ] Fase 4 — UX
+- [~] Fase 4 — UX (in corso)
+      Dashboard unica `dashboard/index.html` (griglia di card, fetch dei JSON, modal con grafico
+      storico). SEPARAZIONE PER GIOCO: schede Pokémon / One Piece / Yu-Gi-Oh in cima (default il
+      primo gioco); set-filter, totali e fonti si adattano al gioco attivo → niente più giochi
+      mescolati. `app.py` serve gli stessi statici di Cloudflare (localhost == sito).
+      ⚠️ Resta: tradurre i nomi OP/YGO (ora solo JP), indice "Andamento" per-gioco, consumo di
+      `movers.json`, immagini per OP/YGO.
 - [ ] Fase 5 — scala / ops
 
 Non aggiungere giochi prima dello schema multi-gioco (Fase 1).

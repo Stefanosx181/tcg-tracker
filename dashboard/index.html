@@ -36,6 +36,13 @@
   button#refreshBtn:disabled{opacity:.6;cursor:default}
   #refreshMsg{align-self:center;font-size:12px;color:var(--muted)}
 
+  /* schede per gioco */
+  .game-tabs{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .gtab{background:var(--card);color:var(--muted);border:1px solid var(--line);
+        border-radius:10px;padding:8px 18px;font-size:14px;cursor:pointer;font-weight:600}
+  .gtab:hover{color:var(--txt);border-color:#3a4a6e}
+  .gtab.on{background:#23314d;color:#cfe4ff;border-color:#3a4a6e}
+
   .wrap{padding:8px 22px 60px;max-width:1500px;margin:0 auto}
 
   /* intestazione set */
@@ -143,6 +150,7 @@
     <a href="https://tcgtracker.cloudflareaccess.com/cdn-cgi/access/logout" class="logout" title="Esci da Access">Esci</a>
   </div>
   <div class="note"><span class="mk">*</span> prezzo riportato dall'ultimo valore noto (manuale o non confermato nell'ultimo aggiornamento)</div>
+  <div class="game-tabs" id="gameTabs"></div>
   <div class="controls">
     <input id="search" placeholder="Cerca carta o codice…" autocomplete="off">
     <select id="setFilter"><option value="">Tutti i set</option></select>
@@ -176,6 +184,13 @@ const PCT = n => (n==null) ? "—" : n.toFixed(1) + "%";
 const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 let DATA=[], HIST={}, SETS=[], collapsed=new Set(), chart=null;
 let SETIDX={sets:{},global:{}}, idxNormalize=false, idxName=null;
+let activeGame=null;
+
+// Giochi: ogni gioco ha la sua pagina (scheda). Ordine fisso, nomi leggibili.
+const GAME_ORDER = ["pokemon","onepiece","yugioh"];
+const GAME_META = { pokemon:{name:"Pokémon"}, onepiece:{name:"One Piece"}, yugioh:{name:"Yu-Gi-Oh"} };
+const gamesPresent = ()=>{ const have=new Set(SETS.map(s=>s.game).filter(Boolean));
+  return [...GAME_ORDER.filter(g=>have.has(g)), ...[...have].filter(g=>!GAME_ORDER.includes(g))]; };
 const qval = ()=>document.getElementById("search").value.trim().toLowerCase();
 const setFilter = ()=>document.getElementById("setFilter").value;
 const imgSrc = c => `images/${c.pack_code}_${c.model_number}.webp`;
@@ -207,12 +222,36 @@ async function load(){
   DATA = b.rows||[]; HIST = h.series||{}; SETIDX = {sets:si.sets||{}, global:si.global||{}};
   document.getElementById("updated").textContent = "Aggiornato: " + (b.generated_at||"—");
   buildSets();
+  activeGame = gamesPresent()[0] || null;     // di default il primo gioco (Pokémon)
+  refreshForGame();
+}
+
+// Schede per gioco: una sola scheda visibile alla volta, niente giochi mescolati.
+function buildGameTabs(){
+  const el=document.getElementById("gameTabs"); el.innerHTML="";
+  const games=gamesPresent();
+  el.style.display = games.length>1 ? "flex" : "none";   // se c'e' un solo gioco, niente schede
+  for(const g of games){
+    const t=document.createElement("button");
+    t.className="gtab"+(g===activeGame?" on":"");
+    t.textContent=(GAME_META[g]||{}).name||g;
+    t.onclick=()=>{ if(activeGame===g) return;
+      activeGame=g; document.getElementById("setFilter").value=""; collapsed.clear(); refreshForGame(); };
+    el.appendChild(t);
+  }
+}
+
+// Ripopola set-filter + totale per il gioco attivo, poi ridisegna.
+function refreshForGame(){
+  buildGameTabs();
+  const mine = SETS.filter(s=>s.game===activeGame);
   const sel=document.getElementById("setFilter");
-  SETS.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s.name; sel.appendChild(o); });
-  const grandTotals={};
-  SETS.forEach(s=> s.sources.forEach(src=>{ grandTotals[src]=(grandTotals[src]||0)+(s.totals[src]||0); }));
-  const gparts=SRC_ORDER.filter(src=>src in grandTotals).map(src=>
-    `${SRC_META[src].name} <span style="color:var(--${SRC_META[src].cls});font-weight:700">${YEN(grandTotals[src])}</span>`);
+  sel.innerHTML='<option value="">Tutti i set</option>';
+  mine.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s.name; sel.appendChild(o); });
+  const gt={};
+  mine.forEach(s=> s.sources.forEach(src=>{ gt[src]=(gt[src]||0)+(s.totals[src]||0); }));
+  const gparts=SRC_ORDER.filter(src=>src in gt).map(src=>
+    `${SRC_META[src].name} <span style="color:var(--${SRC_META[src].cls});font-weight:700">${YEN(gt[src])}</span>`);
   document.getElementById("grand").innerHTML = gparts.length ? "Totale — "+gparts.join(" · ") : "";
   render();
 }
@@ -225,6 +264,7 @@ function buildSets(){
   }
   SETS=[...map.values()].sort((a,b)=>(a.order-b.order)||a.name.localeCompare(b.name));
   for(const s of SETS){
+    s.game = (s.cards[0]||{}).game || null; // il set appartiene a un gioco
     s.sources = setSources(s);              // fonti presenti in questo set
     s.totals = {};
     for(const src of s.sources)
@@ -253,6 +293,7 @@ function render(){
   const query=qval(), sf=setFilter();
   let shown=0;
   for(const s of SETS){
+    if(activeGame && s.game!==activeGame) continue;   // solo il gioco attivo
     if(sf && s.name!==sf) continue;
     const cards = s.cards.filter(c=> !query ||
       (c.name_en||"").toLowerCase().includes(query) ||
