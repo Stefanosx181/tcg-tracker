@@ -175,6 +175,96 @@ def save_price(conn, card_id, source, buying_price, in_stock=True, *,
     conn.commit()
 
 
+# =====================================================================
+#  SEGNALI AZIONABILI (movers.json) — Fase 3.2
+#  Trasformano il confronto tra negozi in segnali semplici e spiegabili:
+#    - spread: quanto il MIGLIOR buyback paga in piu' del secondo (per carta);
+#    - movers: buyback salito/sceso molto nell'ultima settimana.
+#  Si AGGANCIANO all'anti-outlier/stale della 3.1: i segnali usano SOLO prezzi
+#  affidabili (confirmed + non-outlier) e la serie NORMALIZZATA, per non
+#  generare falsi allarmi da carry-forward o spike. Nessuna logica di
+#  budget/rivendita: restiamo nello slice prezzi+trend.
+# =====================================================================
+def _change(points, ndays):
+    """Variazione % dell'ultimo punto vs il piu' recente <= ndays giorni fa.
+
+    points: [[YYYY-MM-DD, prezzo], ...] ordinati. Ritorna dict
+    {pct, base, to, base_day, last_day} oppure None se non calcolabile."""
+    pts = [(d, p) for d, p in points if p is not None]
+    if len(pts) < 2:
+        return None
+    last_day = dt.date.fromisoformat(pts[-1][0])
+    last_val = pts[-1][1]
+    cutoff = last_day - dt.timedelta(days=ndays)
+    base, base_day = None, None
+    for d, p in pts:
+        if dt.date.fromisoformat(d) <= cutoff:
+            base, base_day = p, d
+        else:
+            break
+    if not base or base <= 0:
+        return None
+    return {"pct": round((last_val - base) / base * 100, 1),
+            "base": base, "to": last_val, "base_day": base_day,
+            "last_day": pts[-1][0]}
+
+
+def compute_alerts(reliable, meta, series_norm, move_pct=15.0, spread_pct=20.0):
+    """Calcola movers + spreads da prezzi AFFIDABILI (gia' filtrati a monte).
+
+    reliable    : {card_id(str): {source: prezzo}}  (solo confirmed+non-outlier)
+    meta        : {card_id(str): {name, set, game}}
+    series_norm : {card_id(str): {source: [[day, price], ...]}}  (serie normalizzata)
+    move_pct    : soglia |variazione 7gg| per essere "mover"
+    spread_pct  : soglia spread% best-vs-second per l'alert di divergenza
+
+    Ritorna {"movers": [...], "spreads": [...]} ordinati per intensita'.
+    """
+    movers, spreads = [], []
+    for cid, rp in reliable.items():
+        ranked = sorted(rp.items(), key=lambda kv: kv[1], reverse=True)
+        best_s, best_v = ranked[0]
+        m = meta.get(cid, {})
+        base_info = {"card_id": cid, "name": m.get("name"),
+                     "set": m.get("set"), "game": m.get("game")}
+
+        # SPREAD: divergenza tra negozi (serve >=2 fonti affidabili).
+        if len(ranked) >= 2:
+            second_s, second_v = ranked[1]
+            if second_v > 0:
+                pct = round((best_v - second_v) / second_v * 100, 1)
+                if pct >= spread_pct:
+                    spreads.append({**base_info,
+                                    "best_source": best_s, "best_price": best_v,
+                                    "second_source": second_s, "second_price": second_v,
+                                    "spread_abs": round(best_v - second_v, 2),
+                                    "spread_pct": pct})
+
+        # MOVER: variazione 7gg della MIGLIOR fonte sulla serie NORMALIZZATA.
+        ch = _change(series_norm.get(cid, {}).get(best_s, []), 7)
+        if ch and abs(ch["pct"]) >= move_pct:
+            movers.append({**base_info, "source": best_s,
+                           "pct_7d": ch["pct"], "from": ch["base"], "to": ch["to"],
+                           "from_day": ch["base_day"], "to_day": ch["last_day"],
+                           "direction": "up" if ch["pct"] > 0 else "down"})
+
+    movers.sort(key=lambda x: abs(x["pct_7d"]), reverse=True)
+    spreads.sort(key=lambda x: x["spread_pct"], reverse=True)
+    return {"movers": movers, "spreads": spreads}
+
+
+def dispatch_alerts(payload, hook=None):
+    """Punto di aggancio per NOTIFICHE FUTURE (email/Telegram/webhook).
+
+    Di default e' no-op: i segnali vengono solo scritti in movers.json. Se
+    `hook` e' un callable e ci sono segnali, lo chiama col payload — cosi' un
+    notifier futuro si innesta SENZA modificare export_web. Ritorna il payload.
+    """
+    if hook is not None and (payload.get("movers") or payload.get("spreads")):
+        hook(payload)
+    return payload
+
+
 def export_buylist_json(conn, out_path):
     """Esporta la vista v_buylist in JSON (lista) - compatibilita' col vecchio standalone."""
     import json
@@ -187,12 +277,17 @@ def export_buylist_json(conn, out_path):
     return len(rows)
 
 
-def export_web(conn, out_dir):
-    """Genera i due JSON che alimentano la dashboard statica (Cloudflare Pages):
+def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None):
+    """Genera i JSON che alimentano la dashboard statica (Cloudflare Pages):
 
       buylist.json  -> {generated_at, rows:[...]}   ultimo prezzo per carta
       history.json  -> {generated_at, series:{card_id:{source:[[data,prezzo],...]}}}
                        serie storica, UN punto al giorno (l'ultimo del giorno).
+      setindex.json -> indice ufficiale + vista normalizzata (vedi sotto).
+      movers.json   -> segnali azionabili (spread tra negozi + movers 7gg).
+
+    move_pct/spread_pct: soglie dei segnali (vedi compute_alerts).
+    alert_hook: callable opzionale per notifiche future (vedi dispatch_alerts).
     """
     import os
     import json
@@ -300,6 +395,29 @@ def export_web(conn, out_dir):
 
     json.dump({"generated_at": generated_at, "rows": rows},
               open(os.path.join(out_dir, "buylist.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, default=str)
+
+    # --- segnali azionabili (movers + spread) -----------------------------
+    # Solo prezzi AFFIDABILI (confirmed + non-outlier + >0): l'aggancio 3.1
+    # evita falsi segnali da carry-forward/spike. I movers usano series_norm.
+    reliable, meta = {}, {}
+    for r in rows:
+        cid = str(r["card_id"])
+        rp = {s: d["price"] for s, d in r["prices"].items()
+              if d.get("status") == "confirmed" and not d.get("outlier")
+              and (d.get("price") or 0) > 0}
+        if rp:
+            reliable[cid] = rp
+        meta[cid] = {"name": r.get("full_name") or r.get("card_code"),
+                     "set": r.get("set_name"), "game": r.get("game")}
+    alerts = compute_alerts(reliable, meta, series_norm,
+                            move_pct=move_pct, spread_pct=spread_pct)
+    payload = {"generated_at": generated_at,
+               "thresholds": {"move_pct": move_pct, "spread_pct": spread_pct},
+               "movers": alerts["movers"], "spreads": alerts["spreads"]}
+    dispatch_alerts(payload, alert_hook)   # hook notifiche future (no-op di default)
+    json.dump(payload,
+              open(os.path.join(out_dir, "movers.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 
     # --- indice di prezzo per set (media ponderata a pesi fissi) ----------

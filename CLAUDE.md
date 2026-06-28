@@ -51,7 +51,7 @@ Excel (seed) → db/ SQL → tcg_tracker.db (SQLite)
                        One Piece=cardrush+yuyutei)
    → src/run.py       (orchestratore: per ogni carta cicla gli adapter del suo gioco; --game/--set)
    → src/database.py  (accesso DB, save_price con carry-forward, export_web → JSON multi-fonte)
-   → dashboard/data/*.json (buylist.json, history.json, setindex.json)
+   → dashboard/data/*.json (buylist.json, history.json, setindex.json, movers.json)
    → dashboard/ (statica, Cloudflare Pages)
 GitHub Actions (.github/workflows/scrape.yml, cron settimanale) → commit DB+JSON
 Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
@@ -73,6 +73,11 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   `setindex.json`: indice UFFICIALE (`sets`/`global`, pesi fissi alla data base = foglio Charts)
   + vista NORMALIZZATA anti-outlier (`sets_norm`/`global_norm`, esclude outlier e non-confirmed).
   `ensure_intelligence_columns` aggiunge le colonne Fase 3 ai DB v2 esistenti (idempotente).
+  SEGNALI azionabili (`movers.json`): `compute_alerts` (puro) calcola SPREAD best-vs-second tra
+  negozi + MOVERS 7gg, usando SOLO prezzi affidabili (confirmed+non-outlier) e `series_norm`
+  (aggancio anti-outlier/stale 3.1 → niente falsi segnali). Soglie `move_pct`/`spread_pct`
+  (default 15/20%) parametri di `export_web`. `dispatch_alerts(payload, hook)` = aggancio per
+  notifiche FUTURE (no-op di default; `export_web(..., alert_hook=)`).
 - `db/seed_onepiece_sample.sql`, `db/seed_yugioh_sample.sql` — seed di PROVA One Piece (OP01,
   standard + variante parallel) e Yu-Gi-Oh (QCCU-JP002), per il sandbox `tcg_tracker.backup.db`
 - `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; cicla sul registry
@@ -160,9 +165,14 @@ con stato (aggiornalo a fine fase):
       NORMALIZZATA anti-outlier in `setindex.json` (`sets_norm`/`global_norm`) AGGIUNTIVA:
       l'indice UFFICIALE (`sets`/`global`, pesi fissi alla data base) resta byte-identico al
       foglio Charts/Market Trend — lockato da `tests/test_intelligence.py`
-      (`test_official_index_matches_excel_formula`). 62 test verdi.
+      (`test_official_index_matches_excel_formula`).
+      3.2 — SEGNALI azionabili (`dashboard/data/movers.json`): spread best-vs-second tra negozi
+      + movers 7gg, su prezzi affidabili (confirmed+non-outlier) e serie normalizzata (aggancio
+      3.1). `compute_alerts`/`dispatch_alerts` (hook notifiche future, no-op). Test in
+      `tests/test_movers.py`. 72 test verdi.
       ⚠️ Resta: la SELEZIONE del best_price è ancora `max()` (il flag outlier la segnala ma non
-      la corregge); disambiguazione fine rarità/stampa YGO (vedi Fase 2).
+      la corregge); disambiguazione fine rarità/stampa YGO (vedi Fase 2). La dashboard non
+      consuma ancora `movers.json` (lavoro UX, Fase 4).
 - [ ] Fase 4 — UX
 - [ ] Fase 5 — scala / ops
 
