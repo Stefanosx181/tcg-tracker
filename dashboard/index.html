@@ -85,7 +85,14 @@
   .sheet .hd img{width:64px;height:88px;object-fit:contain;background:#0a0d16;border-radius:6px}
   .sheet .hd h3{margin:0 0 3px;font-size:15px}
   .sheet .hd .sub{color:var(--muted);font-size:12px}
-  .sheet .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:22px;line-height:1;border:none;background:none}
+  .sheet .x{cursor:pointer;color:var(--muted);font-size:22px;line-height:1;border:none;background:none}
+  .idxbtn{background:none;border:1px solid var(--line);color:var(--muted);border-radius:7px;
+          padding:3px 9px;cursor:pointer;font-size:13px;line-height:1}
+  .idxbtn:hover{color:var(--txt);border-color:#3a4a6e}
+  #globalIdxBtn{cursor:pointer;background:#23314d;border-color:#3a4a6e;color:#cfe4ff}
+  .toggle{margin-left:auto;background:#1d3a5f;border:1px solid #2c5a8f;color:#cfe4ff;
+          border-radius:8px;padding:5px 11px;cursor:pointer;font-size:12px}
+  .toggle:hover{background:#234a78}
   .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:2px 0 8px}
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
   .chart-box{height:260px}
@@ -138,6 +145,7 @@
   <div class="controls">
     <input id="search" placeholder="Cerca carta o codice…" autocomplete="off">
     <select id="setFilter"><option value="">Tutti i set</option></select>
+    <button id="globalIdxBtn" title="Andamento del prezzo medio ponderato di tutti i set">📈 Andamento</button>
     <button id="refreshBtn" title="Avvia subito lo scraping dei prezzi">↻ Aggiorna ora</button>
     <span id="refreshMsg"></span>
   </div>
@@ -153,6 +161,7 @@
     <div class="hd">
       <img id="mImg" alt="">
       <div><h3 id="mName"></h3><div class="sub" id="mSub"></div></div>
+      <button class="toggle" id="mToggle" hidden>Indice 100</button>
       <button class="x" id="mClose">×</button>
     </div>
     <div class="legend">
@@ -168,16 +177,18 @@ const YEN = n => (n==null||n===0) ? "—" : "¥" + Number(n).toLocaleString("ja-
 const PCT = n => (n==null) ? "—" : n.toFixed(1) + "%";
 const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 let DATA=[], HIST={}, SETS=[], collapsed=new Set(), chart=null;
+let SETIDX={sets:{},global:{}}, idxNormalize=false, idxName=null;
 const qval = ()=>document.getElementById("search").value.trim().toLowerCase();
 const setFilter = ()=>document.getElementById("setFilter").value;
 const imgSrc = c => `images/${c.pack_code}_${c.model_number}.webp`;
 
 async function load(){
-  const [b,h] = await Promise.all([
+  const [b,h,si] = await Promise.all([
     fetch("./data/buylist.json").then(r=>r.json()),
     fetch("./data/history.json").then(r=>r.json()).catch(()=>({series:{}})),
+    fetch("./data/setindex.json").then(r=>r.json()).catch(()=>({sets:{},global:{}})),
   ]);
-  DATA = b.rows||[]; HIST = h.series||{};
+  DATA = b.rows||[]; HIST = h.series||{}; SETIDX = {sets:si.sets||{}, global:si.global||{}};
   document.getElementById("updated").textContent = "Aggiornato: " + (b.generated_at||"—");
   buildSets();
   const sel=document.getElementById("setFilter");
@@ -234,8 +245,12 @@ function render(){
        <div class="set-tot">
          <div><span class="lbl">CardRush</span><span class="cr">${YEN(s.totalCR)}</span></div>
          <div><span class="lbl">Hareruya</span><span class="hr">${YEN(s.totalHR)}</span></div>
-       </div>`;
+       </div>
+       <button class="idxbtn" title="Andamento prezzo del set">📈</button>`;
     head.onclick=()=>{ collapsed.has(s.name)?collapsed.delete(s.name):collapsed.add(s.name); render(); };
+    const ib=head.querySelector(".idxbtn");
+    if(SETIDX.sets[s.name]) ib.onclick=(e)=>{ e.stopPropagation(); openIndex(s.name); };
+    else ib.style.display="none";
     cont.appendChild(head);
     if(isCol) continue;
 
@@ -261,12 +276,27 @@ function render(){
 }
 
 function openChart(c){
-  document.getElementById("mImg").src = imgSrc(c);
+  idxName=null;
+  const img=document.getElementById("mImg"); img.style.display=""; img.src=imgSrc(c);
+  document.getElementById("mToggle").hidden=true;
   document.getElementById("mName").textContent = c.full_name||c.card_code;
   document.getElementById("mSub").textContent = `${c.card_code}${c.rarity?' · '+c.rarity:''}`;
   document.getElementById("modal").classList.add("on");
   drawChart(document.getElementById("mCanvas"), c.card_id);
 }
+
+function openIndex(name){
+  const entry = name==="__GLOBAL__" ? SETIDX.global : (SETIDX.sets||{})[name];
+  if(!entry || (!entry.cardrush && !entry.hareruya)) return;
+  idxName=name;
+  document.getElementById("mImg").style.display="none";
+  const tg=document.getElementById("mToggle"); tg.hidden=false; tg.textContent = idxNormalize?"Mostra ¥":"Indice 100";
+  document.getElementById("mName").textContent = name==="__GLOBAL__" ? "Andamento generale" : name;
+  document.getElementById("mSub").textContent = "Indice di prezzo ponderato" + (name==="__GLOBAL__" ? " (tutti i set)" : " del set");
+  document.getElementById("modal").classList.add("on");
+  drawIndexChart(document.getElementById("mCanvas"), entry, idxNormalize);
+}
+
 function closeModal(){ document.getElementById("modal").classList.remove("on"); if(chart){chart.destroy();chart=null;} }
 document.getElementById("mClose").onclick = closeModal;
 document.getElementById("modal").onclick = e=>{ if(e.target.id==="modal") closeModal(); };
@@ -288,6 +318,30 @@ function drawChart(canvas, cardId){
   });
 }
 
+function drawIndexChart(canvas, entry, normalize){
+  const cr=entry.cardrush||[], hr=entry.hareruya||[];
+  const days=[...new Set([...cr,...hr].map(p=>p[0]))].sort();
+  const series=arr=>{
+    const m=Object.fromEntries(arr.map(p=>[p[0],p[1]]));
+    let vals=days.map(d=>m[d]??null);
+    if(normalize){ const base=vals.find(v=>v!=null); vals=vals.map(v=> v==null?null : +(v/base*100).toFixed(1)); }
+    return vals;
+  };
+  if(chart) chart.destroy();
+  chart=new Chart(canvas,{type:"line",
+    data:{labels:days,datasets:[
+      {label:"CardRush",data:series(cr),borderColor:"#5aa9ff",spanGaps:true,tension:.25,pointRadius:3},
+      {label:"Hareruya",data:series(hr),borderColor:"#ff8a5a",spanGaps:true,tension:.25,pointRadius:3},
+    ]},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${normalize?c.parsed.y:("¥"+Number(c.parsed.y).toLocaleString("ja-JP"))}`}}},
+      scales:{x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
+              y:{ticks:{color:"#8b94ad",callback:v=>normalize?v:"¥"+v.toLocaleString("ja-JP")},grid:{color:"#27304a"}}}}
+  });
+}
+
+document.getElementById("globalIdxBtn").onclick=()=>openIndex("__GLOBAL__");
+document.getElementById("mToggle").onclick=()=>{ idxNormalize=!idxNormalize; if(idxName) openIndex(idxName); };
 document.getElementById("search").oninput = render;
 document.getElementById("setFilter").onchange = render;
 document.getElementById("refreshBtn").onclick = async (e)=>{

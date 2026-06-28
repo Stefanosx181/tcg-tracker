@@ -116,4 +116,66 @@ def export_web(conn, out_dir):
               open(os.path.join(out_dir, "history.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 
+    # --- indice di prezzo per set (media ponderata a pesi fissi) ----------
+    # Peso carta = prezzo / totale set alla DATA BASE (prima data del set),
+    # fissato; indice(data) = somma(prezzo(data) * peso_base). Stesso calcolo
+    # del foglio "Charts" (verificato). Si calcola anche un aggregato globale.
+    card_set = {str(r["card_id"]): r["set_name"] for r in rows}
+
+    def _index(price_by_date):
+        """price_by_date: {date: {card_id: price}} -> [[date, indice], ...]."""
+        dates = sorted(price_by_date)
+        if not dates:
+            return []
+        base = price_by_date[dates[0]]
+        total_base = sum(base.values())
+        if not total_base:
+            return []
+        weights = {c: p / total_base for c, p in base.items()}
+        out = []
+        for d in dates:
+            present = price_by_date[d]
+            # rinormalizza sui pesi delle carte presenti in questa data: evita
+            # cali artificiali quando una carta manca (buchi nello storico).
+            num = sum(present.get(c, 0) * w for c, w in weights.items())
+            den = sum(w for c, w in weights.items() if c in present)
+            out.append([d, round(num / den, 1) if den else 0])
+        return out
+
+    def _collect(card_ids):
+        """{source: {date: {card_id: price}}} per i card_id indicati."""
+        acc = {"cardrush": {}, "hareruya": {}}
+        for cid in card_ids:
+            for src, pts in series.get(cid, {}).items():
+                for day, price in pts:
+                    if price is None:
+                        continue
+                    acc[src].setdefault(day, {})[cid] = price
+        return acc
+
+    set_index = {}
+    by_set = {}
+    for cid, sname in card_set.items():
+        by_set.setdefault(sname, []).append(cid)
+    for sname, cids in by_set.items():
+        acc = _collect(cids)
+        entry = {}
+        for src in ("cardrush", "hareruya"):
+            s = _index(acc[src])
+            if s:
+                entry[src] = s
+        if entry:
+            set_index[sname] = entry
+
+    glob = {}
+    acc_all = _collect(list(card_set))
+    for src in ("cardrush", "hareruya"):
+        s = _index(acc_all[src])
+        if s:
+            glob[src] = s
+
+    json.dump({"generated_at": generated_at, "sets": set_index, "global": glob},
+              open(os.path.join(out_dir, "setindex.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, default=str)
+
     return len(rows)
