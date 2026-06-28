@@ -16,6 +16,31 @@ per il buyback comparato. Il vantaggio difendibile è il *buyback comparato mult
 inseguire TCGplayer/Cardmarket. La UI deve restare semplice e usabile da un collezionista non
 tecnico.
 
+## Contratto-output (cosa "loro" vogliono vedere) — il confine del progetto
+
+La sorgente di verità è `Import_Kumamoto.xlsx` (mai modificato). È il gestionale completo di
+un'attività di import/rivendita carte JP. **L'app possiede SOLO lo slice prezzi + trend.**
+Il resto resta nell'Excel e NON va costruito.
+
+IN SCOPE (gli output che l'app deve produrre, per Pokémon e — in espansione — One Piece/Yu-Gi-Oh):
+1. **Buylist per carta**: buyback CardRush vs Hareruya, prezzo ×1.10, miglior fonte
+   (= colonne sx del foglio `BuyList Pokemon`).
+2. **Indice di prezzo / trend**: indice settimanale **ponderato a pesi fissi sulla data base**
+   per set, CR vs HR2 (= foglio `Market Trend (Pokemon)`), e la serie storica aggregata
+   (= foglio `Charts`). Replicato in `src/database.py::export_web`.
+
+⛔ OUT OF SCOPE — NON costruire (restano nell'Excel):
+- pianificatore budget per rarità (target/budget necessario/residuo)
+- registro acquisti reali
+- negoziazione Mercari (`Mercari`)
+- spedizioni/rivendita (`Shipped Cards`, `Shipping adress`)
+Se un task sembra richiedere queste cose, FERMATI e chiedi: sono fuori scope.
+
+🔒 Vincolo sul trend: il calcolo dell'indice deve **continuare a coincidere** con quello del
+foglio `Market Trend`/`Charts` (pesi fissati alla data base). Miglioramenti tipo
+anti-outlier/normalizzazione vanno aggiunti come VISTA AGGIUNTIVA, non sostituendo il numero
+ufficiale che loro si aspettano di vedere.
+
 ## Architettura e flusso dati
 
 ```
@@ -62,6 +87,11 @@ pytest                           # test (dove presenti)
 - **Diff piccoli e revisionabili**, non riscritture monolitiche.
 - **Dopo ogni modifica**: fai girare i test e mostra l'output.
 - **A fine fase**: committa con messaggio sensato (sono i miei punti di ripristino).
+- **A fine fase, aggiorna QUESTO file (`CLAUDE.md`)**: rimuovi dalle "Trappole note" i
+  problemi che hai appena risolto, aggiorna architettura/comandi/file chiave se cambiati, e
+  segna la fase come completata nella roadmap. Il `CLAUDE.md` deve sempre riflettere lo stato
+  ATTUALE del codice, non descrivere problemi già risolti. Includi questa modifica nel commit
+  di fine fase.
 - **Output di analisi** (audit, ricognizioni, review): scrivili in `docs/`, non solo in chat.
 - **Una fase per conversazione**: a fine fase si fa `/clear` e si riparte pulito.
 - Dove esistono **API/dataset ufficiali**, preferiscili allo scraping (più stabili, meno ToS).
@@ -82,7 +112,13 @@ pytest                           # test (dove presenti)
 - **Casing incoerente** nei dati: `S12a` vs `SV1V`; `full_name` mescola JP/EN e ripete il set.
 
 ## Roadmap (riferimento)
-Il piano completo dei prompt per fase è in `PROMPT_PLAYBOOK_CLAUDECODE.md`. Ordine rigido:
-Fase 0 (scraper robusti) → Fase 1 (schema multi-gioco + migrazione) → Fase 2 (One Piece,
-Yu-Gi-Oh) → Fase 3 (intelligence prezzi) → Fase 4 (UX) → Fase 5 (scala/ops). Non aggiungere
-giochi prima dello schema multi-gioco.
+Il piano completo dei prompt per fase è in `PROMPT_PLAYBOOK_CLAUDECODE.md`. Ordine rigido,
+con stato (aggiornalo a fine fase):
+- [ ] Fase 0 — scraper robusti e testabili
+- [ ] Fase 1 — schema multi-gioco + migrazione
+- [ ] Fase 2 — One Piece, Yu-Gi-Oh
+- [ ] Fase 3 — intelligence prezzi
+- [ ] Fase 4 — UX
+- [ ] Fase 5 — scala / ops
+
+Non aggiungere giochi prima dello schema multi-gioco (Fase 1).
