@@ -82,7 +82,11 @@ def scrape_cardrush(url: str):
     want_model = (qs.get("model_number") or [""])[0].strip()
     want_pack = (qs.get("pack_code") or [""])[0].strip()
 
-    prices = []
+    # Raccogliamo i prezzi distinguendo la carta STANDARD dalle varianti
+    # (errore di stampa, ecc.): CardRush le marca con 'extra_difference' non
+    # vuoto (es. "※表面加工エラー") e spesso costano molto di piu'. Vogliamo il
+    # prezzo della carta normale, non della variante.
+    standard, variant = [], []
     for it in items:
         if not isinstance(it, dict):
             continue
@@ -97,12 +101,17 @@ def scrape_cardrush(url: str):
         if want_pack and pack and pack.lower() != want_pack.lower():
             continue
         try:
-            prices.append(int(float(amt)))
+            price = int(float(amt))
         except (TypeError, ValueError):
-            pass
-    if not prices:
+            continue
+        extra = (it.get("extra_difference") or "").strip()
+        (variant if extra else standard).append(price)
+
+    # Preferiamo la carta standard; solo se non ce n'e' nessuna usiamo le varianti.
+    chosen = standard or variant
+    if not chosen:
         return None, False
-    return max(prices), True   # buying price = offerta di acquisto piu' alta
+    return max(chosen), True   # buying price = offerta di acquisto piu' alta (carta standard)
 
 
 # ----------------------------------------------------------------------
