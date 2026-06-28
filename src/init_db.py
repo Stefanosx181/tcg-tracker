@@ -1,12 +1,16 @@
 """
-init_db.py - Crea il database SQLite (tcg_tracker.db) da schema + seed.
+init_db.py - Crea/aggiorna il database SQLite (tcg_tracker.db).
 
-IMPORTANTE: e' IDEMPOTENTE. Se il database esiste gia' ed e' popolato, NON lo
-tocca, cosi' lo storico dei prezzi (tabella tcg_price) non viene mai perso.
-Questo serve in cloud (GitHub Actions): il DB viene committato nel repo e ogni
-run deve solo AGGIUNGERE prezzi, non ricrearlo.
+IMPORTANTE: e' IDEMPOTENTE e NON perde mai lo storico (tabella tcg_price).
+  - DB mancante/vuoto -> costruisce lo schema v1 dal seed e lo MIGRA a v2
+    (multi-gioco), cosi' "fresh" == "migrato" (un solo percorso di verita').
+  - DB esistente v1    -> lo AGGIORNA a v2 in-place, storico preservato.
+  - DB esistente v2    -> non fa nulla.
 
-  python init_db.py            # crea solo se manca / vuoto (storico salvo)
+Serve in cloud (GitHub Actions): il DB e' committato nel repo e ogni run deve
+solo AGGIUNGERE prezzi.
+
+  python init_db.py            # crea se manca / aggiorna v1->v2 (storico salvo)
   python init_db.py --force    # ricrea da zero (CANCELLA lo storico!)
 """
 import os
@@ -18,44 +22,49 @@ HERE = os.path.dirname(__file__)
 DB   = os.path.join(HERE, "..", "tcg_tracker.db")
 SQL  = os.path.join(HERE, "..", "db")
 
-
-def _card_count(path):
-    """Numero di carte nel DB (0 se il DB non esiste o non ha le tabelle)."""
-    if not os.path.exists(path):
-        return 0
-    conn = sqlite3.connect(path)
-    try:
-        return conn.execute("SELECT COUNT(*) FROM tcg_card").fetchone()[0]
-    except sqlite3.OperationalError:
-        return 0
-    finally:
-        conn.close()
+sys.path.insert(0, SQL)
+import migrate_001_multigame as mig  # noqa: E402
 
 
-def run(force=False):
-    existing = _card_count(DB)
-    if existing > 0 and not force:
-        print(f"Database gia' presente con {existing} carte: storico preservato.")
-        print("Usa  python init_db.py --force  per ricrearlo da zero (cancella lo storico).")
-        return
-
-    if os.path.exists(DB) and force:
-        os.remove(DB)
-
-    conn = sqlite3.connect(DB)
-    conn.executescript(open(os.path.join(SQL, "schema_sqlite.sql"), encoding="utf-8").read())
-
+def _build_v1_with_seed(conn):
+    """Crea lo schema v1 e applica il seed (263 carte Pokémon)."""
+    conn.executescript(open(os.path.join(SQL, "schema_v1_sqlite.sql"), encoding="utf-8").read())
     # Il seed e' scritto per MySQL: adattiamo le poche differenze di sintassi.
     seed = open(os.path.join(SQL, "02_seed_sets_cards.sql"), encoding="utf-8").read()
     seed = re.sub(r"USE\s+tcg_tracker\s*;", "", seed)
     conn.executescript(seed)
     conn.commit()
 
-    n_sets  = conn.execute("SELECT COUNT(*) FROM tcg_set").fetchone()[0]
-    n_cards = conn.execute("SELECT COUNT(*) FROM tcg_card").fetchone()[0]
-    conn.close()
-    print(f"Database creato: {os.path.abspath(DB)}")
-    print(f"  set: {n_sets}  carte: {n_cards}")
+
+def run(force=False):
+    if os.path.exists(DB) and force:
+        os.remove(DB)
+
+    fresh = not os.path.exists(DB)
+    conn = sqlite3.connect(DB)
+    try:
+        ver = mig.schema_version(conn)
+
+        if ver == 2:
+            n = conn.execute("SELECT COUNT(*) FROM tcg_card").fetchone()[0]
+            print(f"Database gia' v2 con {n} carte: nulla da fare (storico preservato).")
+            return
+
+        if ver == 1:
+            print("Database v1 esistente: aggiorno a v2 (storico preservato)...")
+            mig.migrate(conn)
+            print(f"Aggiornato: {os.path.abspath(DB)}")
+            return
+
+        # ver == 0: DB mancante/vuoto -> bootstrap v1 dal seed, poi migra a v2
+        _build_v1_with_seed(conn)
+        mig.migrate(conn)
+        n_sets  = conn.execute("SELECT COUNT(*) FROM tcg_set").fetchone()[0]
+        n_cards = conn.execute("SELECT COUNT(*) FROM tcg_card").fetchone()[0]
+        print(f"Database creato ({'nuovo' if fresh else 'rigenerato'}): {os.path.abspath(DB)}")
+        print(f"  set: {n_sets}  carte: {n_cards}")
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

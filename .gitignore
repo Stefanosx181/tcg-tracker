@@ -18,6 +18,9 @@ config.ini
 
 # NB: tcg_tracker.db e dashboard/data/*.json SONO committati apposta:
 #     sono lo storico dei prezzi e i dati della dashboard.
+# I backup del DB (creati prima delle migrazioni) NON vanno committati:
+tcg_tracker.backup.db
+*.backup.db
 
 # wrangler files
 .wrangler

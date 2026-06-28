@@ -22,20 +22,30 @@ def get_conn(mysql_cfg: dict | None = None):
 
 
 def fetch_cards(conn):
-    """Tutte le carte da scrapare (codice + url cardrush + model number)."""
+    """Tutte le carte da scrapare (codice + url cardrush + model number).
+
+    Schema v2 (multi-gioco): le colonne v1 (pack_code/card_code/model_number/
+    full_name) sono ricostruite via join + campi legacy, cosi' run.py resta invariato.
+    """
     cur = conn.cursor()
-    cur.execute("""SELECT id, pack_code, card_code, model_number, full_name,
-                          cardrush_url, hareruya_url
-                   FROM tcg_card ORDER BY id""")
+    cur.execute("""SELECT c.id               AS id,
+                          s.set_code          AS pack_code,
+                          c.legacy_card_code  AS card_code,
+                          c.legacy_model_number AS model_number,
+                          c.name              AS full_name,
+                          c.cardrush_url      AS cardrush_url,
+                          c.hareruya_url      AS hareruya_url
+                   FROM tcg_card c JOIN tcg_set s ON s.id = c.set_id
+                   ORDER BY c.id""")
     return cur.fetchall()
 
 
 def _last_known_price(conn, card_id, source):
-    """Ultimo buying_price NON nullo registrato per questa carta+fonte (o None)."""
+    """Ultimo price_raw NON nullo registrato per questa carta+fonte (o None)."""
     ph = "?" if isinstance(conn, sqlite3.Connection) else "%s"
     row = conn.cursor().execute(
-        f"""SELECT buying_price FROM tcg_price
-            WHERE card_id={ph} AND source={ph} AND buying_price IS NOT NULL
+        f"""SELECT price_raw FROM tcg_price
+            WHERE card_id={ph} AND source_code={ph} AND price_raw IS NOT NULL
             ORDER BY scraped_at DESC, id DESC LIMIT 1""",
         (card_id, source)).fetchone()
     return row[0] if row else None
@@ -58,9 +68,10 @@ def save_price(conn, card_id, source, buying_price, in_stock=True):
     comm = round(buying_price * 1.10, 2) if buying_price is not None else None
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     placeholder = "?" if isinstance(conn, sqlite3.Connection) else "%s"
+    ph = placeholder
     sql = f"""INSERT INTO tcg_price
-              (card_id, source, buying_price, price_with_commission, currency, in_stock, scraped_at)
-              VALUES ({placeholder},{placeholder},{placeholder},{placeholder},'JPY',{placeholder},{placeholder})"""
+              (card_id, source_code, price_raw, price_norm, currency, condition, in_stock, scraped_at)
+              VALUES ({ph},{ph},{ph},{ph},'JPY','NM',{ph},{ph})"""
     conn.cursor().execute(sql, (card_id, source, buying_price, comm,
                                 1 if in_stock else 0, now))
     conn.commit()
@@ -103,11 +114,11 @@ def export_web(conn, out_dir):
 
     # --- serie storica (1 punto/giorno) -----------------------------------
     cur.execute("""
-        SELECT card_id, source, substr(scraped_at, 1, 10) AS d, buying_price
+        SELECT card_id, source_code AS source, substr(scraped_at, 1, 10) AS d, price_raw
         FROM tcg_price
         WHERE id IN (SELECT MAX(id) FROM tcg_price
-                     GROUP BY card_id, source, substr(scraped_at, 1, 10))
-        ORDER BY card_id, source, d
+                     GROUP BY card_id, source_code, substr(scraped_at, 1, 10))
+        ORDER BY card_id, source_code, d
     """)
     series = {}
     for card_id, source, day, price in cur.fetchall():

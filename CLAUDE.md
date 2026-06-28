@@ -62,18 +62,23 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 - `src/database.py` — `save_price` (carry-forward), `export_web` (genera i JSON + indice set)
 - `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; usa un solo
   `HttpClient` condiviso e conta i `LayoutError` per l'allarme rottura per-fonte.
-- `src/init_db.py` — crea il DB (idempotente; `--force` ricrea da zero = cancella storico)
-- `db/schema_sqlite.sql` — schema attuale (Pokémon-specifico)
-- `tests/test_scrapers.py` — test pytest offline; `tests/fixtures/` = pagine reali CR+HR
+- `src/init_db.py` — crea/aggiorna il DB (idempotente): bootstrap v1 dal seed → migra a v2;
+  un DB v1 esistente viene aggiornato a v2 in-place (storico preservato). `--force` = da zero.
+- `db/schema_sqlite.sql` — **schema corrente v2 (multi-gioco, game-agnostic)**; viste
+  `v_latest_price`/`v_buylist` con alias ai nomi v1 → contratto-output invariato.
+- `db/schema_v1_sqlite.sql` — schema v1 (Pokémon), solo per il bootstrap dal seed.
+- `db/migrate_001_multigame.py` — migrazione v1→v2 (id preservati, pre-check collisioni/sorgenti).
+- `tests/test_scrapers.py`, `tests/test_migration.py` — test pytest offline; `tests/fixtures/` = pagine reali CR+HR
 - `dashboard/dashboard.html` — dashboard (ATTENZIONE: dati inline stale, vedi sotto)
 
 ## Comandi
 ```bash
-python src/init_db.py            # crea DB se manca (storico preservato)
+python src/init_db.py            # crea/aggiorna DB v1->v2 (storico preservato)
 python src/run.py --limit 3      # test scraping su 3 carte
 python src/run.py --set S12A     # un solo set
 python src/run.py --only cardrush
-pytest                           # test scraper offline (usa tests/fixtures/)
+python db/migrate_001_multigame.py tcg_tracker.backup.db  # migrazione su un file specifico
+pytest                           # test scraper+migrazione offline (usa tests/fixtures/)
 ```
 
 ---
@@ -108,9 +113,6 @@ pytest                           # test scraper offline (usa tests/fixtures/)
 - **Carry-forward** in `save_price`: riusa l'ultimo prezzo con `in_stock=0`, mascherando carte
   delisted e inquinando l'indice di set. Da rendere esplicito e limitato nel tempo.
 - **best_price = max()**: può catturare una variante/error card invece della standard.
-- **Schema Pokémon-specifico**: `pack_code`/`model_number`/`card_code` ('114/083') non reggono
-  One Piece (OP01-001) né Yu-Gi-Oh. Serve dimensione `game` + identità canonica prima di
-  aggiungere giochi.
 - **DB committato a ogni run**: gonfia la history git nel tempo.
 - **Casing incoerente** nei dati: `S12a` vs `SV1V`; `full_name` mescola JP/EN e ripete il set.
 
@@ -119,7 +121,10 @@ Il piano completo dei prompt per fase è in `PROMPT_PLAYBOOK_CLAUDECODE.md`. Ord
 con stato (aggiornalo a fine fase):
 - [x] Fase 0 — scraper robusti e testabili (3 livelli fetch/parse/pick, `HttpClient` con
       retry+backoff+rate-limit, `LayoutError` + allarme per-fonte, test pytest offline su fixtures)
-- [ ] Fase 1 — schema multi-gioco + migrazione
+- [x] Fase 1 — schema multi-gioco + migrazione (schema v2 game-agnostic: game/set/card con
+      identità canonica + source + price raw/norm; migrazione id-preserving v1→v2 con diff-zero
+      su buylist/indice; viste con alias v1). ⚠️ Il DB reale va migrato col `via`: alla prossima
+      `init_db` (cron o manuale) viene aggiornato a v2 automaticamente.
 - [ ] Fase 2 — One Piece, Yu-Gi-Oh
 - [ ] Fase 3 — intelligence prezzi
 - [ ] Fase 4 — UX
