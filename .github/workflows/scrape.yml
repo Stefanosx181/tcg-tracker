@@ -21,7 +21,7 @@ on:
     inputs:
       batch:
         description: "Carte Hareruya per lotto"
-        default: "2500"
+        default: "2800"
       harvest:
         description: "Esegui anche l'harvest CardRush completo + OP/YGO"
         type: boolean
@@ -37,7 +37,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  HARERUYA_BATCH: ${{ github.event.inputs.batch || '2500' }}
+  # 4 trigger notturni x 2800 = 11.200 >= catalogo (~10.2k) -> coperto in una notte
+  HARERUYA_BATCH: ${{ github.event.inputs.batch || '2800' }}
   # true sul PRIMO trigger notturno (22:00) o su dispatch manuale con harvest=true
   RUN_HARVEST: ${{ github.event.schedule == '0 22 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.harvest == 'true') }}
 
