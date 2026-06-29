@@ -66,8 +66,14 @@ jobs:
         if: env.RUN_HARVEST == 'true'
         run: python src/run.py --harvest-pokemon
 
-      - name: Refresh prezzi One Piece / Yu-Gi-Oh (cataloghi piccoli, per-carta)
+      # NON deve far fallire il job: le fonti PREZZI di OP/YGO (Toretoku, Yuyu-tei)
+      # bloccano gli IP di GitHub Actions (403 Forbidden) -> 0 prezzi -> exit 2.
+      # I prezzi Pokémon (CardRush+Hareruya) funzionano dal cloud; OP/YGO si
+      # rinfrescano semmai dal PC (DEPLOY.md "Piano B"). continue-on-error = il job
+      # resta verde sui Pokémon anche se OP/YGO non si aggiornano dal cloud.
+      - name: Refresh prezzi One Piece / Yu-Gi-Oh (best-effort, fonti spesso bloccate in CI)
         if: env.RUN_HARVEST == 'true'
+        continue-on-error: true
         run: |
           python src/run.py --game onepiece --sleep 1.0
           python src/run.py --game yugioh   --sleep 1.0
