@@ -168,6 +168,30 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - **Una fase per conversazione**: a fine fase si fa `/clear` e si riparte pulito.
 - Dove esistono **API/dataset ufficiali**, preferiscili allo scraping (più stabili, meno ToS).
 
+## 🛠️ Metodo "squadra" (multi-agente) — OPT-IN, parola-chiave: `squadra`
+Flusso di lavoro ad alta qualità con **agenti di controllo**, da usare SOLO quando l'utente lo
+chiede esplicitamente scrivendo la parola **`squadra`** (o frasi tipo "fallo a squadra",
+"modalità squadra"). Senza quella parola → lavoro normale. Se è ambiguo, CHIEDI prima di spendere
+token. È pensato per i **lavori grossi** (redesign UI/UX, refactor strutturali, nuove feature
+ampie, audit), non per modifiche piccole.
+
+Quando attivato, usa il **tool `Workflow`** (orchestrazione multi-agente) in queste fasi, restando
+tu il filo conduttore tra una e l'altra:
+1. **Capire/Progettare** — un workflow che fa: audit del codice reale → **N proposte/direzioni
+   indipendenti** (es. 3-4) → **giuria** di più lenti che le valuta → **sintesi** in un blueprint
+   concreto e implementabile. (Per il design UI: includere sempre i vincoli "cosa NON toccare".)
+2. **Implementare** — nel loop principale, da un solo autore coerente, seguendo il blueprint e
+   rispettando i vincoli invalicabili (backup DB, diff piccoli, niente modifiche fuori scope).
+3. **Review avversariale** — un workflow di revisori su più **dimensioni** (correttezza/rotture,
+   coerenza, accessibilità/responsive, estetica/UX) → **triage** (dedup, scarta falsi positivi,
+   prioritizza) → applichi i fix REALI (must/should + polish ad alto impatto).
+4. **Verifica meccanica SEMPRE prima del commit**: test (`pytest`), e per la UI `node --check` +
+   un harness con DOM finto sui dati reali (render/contratti) + anteprima Flask. Niente "fidati".
+
+Principi: preserva ciò che l'utente ama (es. le CARD), tieni i giochi/le fasi separati, scrivi
+l'analisi (blueprint + review) in `docs/`, e committa a fine fase. Esempio già fatto:
+redesign **"Sumi 墨"** → `docs/UI_REDESIGN_SUMI.md`.
+
 ## Trappole note (già individuate — non reintrodurle)
 - **Catalogo Pokémon COMPLETO, OP/YGO PARZIALE**: il DB reale (2026-06-29) ha l'INTERO catalogo
   buyback Pokémon di CardRush — **10.191 singole / 351 set** (incl. il bucket `その他` ~1.889 per
