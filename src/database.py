@@ -529,8 +529,10 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
     # --- indice di prezzo per set (media ponderata a pesi fissi) ----------
     # Peso carta = prezzo / totale set alla DATA BASE (prima data del set),
     # fissato; indice(data) = somma(prezzo(data) * peso_base). Stesso calcolo
-    # del foglio "Charts" (verificato). Si calcola anche un aggregato globale.
+    # del foglio "Charts" (verificato). L'aggregato 'global' e' PER-GIOCO
+    # (il foglio Charts e' Pokémon): niente piu' aggregato cross-gioco senza senso.
     card_set = {str(r["card_id"]): r["set_name"] for r in rows}
+    card_game = {str(r["card_id"]): r.get("game") for r in rows}
 
     def _index(price_by_date):
         """price_by_date: {date: {card_id: price}} -> [[date, indice], ...]."""
@@ -577,15 +579,25 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
     by_set = {}
     for cid, sname in card_set.items():
         by_set.setdefault(sname, []).append(cid)
+    by_game = {}
+    for cid, g in card_game.items():
+        if g:
+            by_game.setdefault(g, []).append(cid)
 
     def _build_index(src_series):
-        """sets + global per una serie data."""
+        """sets + global PER-GIOCO per una serie data. global = {game: {source: serie}}:
+        l'andamento generale di ogni gioco usa solo le sue carte/fonti (Pokémon non
+        mescola Yuyu-tei/Toretoku, ecc.)."""
         si = {}
         for sname, cids in by_set.items():
             entry = _index_entry(_collect(cids, src_series))
             if entry:
                 si[sname] = entry
-        gl = _index_entry(_collect(list(card_set), src_series))
+        gl = {}
+        for g, cids in by_game.items():
+            entry = _index_entry(_collect(cids, src_series))
+            if entry:
+                gl[g] = entry
         return si, gl
 
     # UFFICIALE (contratto): pesi fissi alla data base, su price_raw com'e'.

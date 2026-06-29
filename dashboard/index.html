@@ -287,6 +287,9 @@ function refreshForGame(){
   const sel=document.getElementById("setFilter");
   sel.innerHTML='<option value="">Tutti i set</option>';
   mine.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s.name; sel.appendChild(o); });
+  // mostra "Andamento" solo se esiste un indice generale per il gioco attivo
+  document.getElementById("globalIdxBtn").style.display =
+    (SETIDX.global && SETIDX.global[activeGame]) ? "" : "none";
   updateGrand();
   render();
 }
@@ -432,13 +435,16 @@ function openChart(c){
 }
 
 function openIndex(name){
-  const entry = name==="__GLOBAL__" ? SETIDX.global : (SETIDX.sets||{})[name];
-  if(!entry || (!entry.cardrush && !entry.hareruya)) return;
+  // 'global' e' PER-GIOCO: l'andamento generale usa solo i set del gioco attivo
+  // (niente Yuyu-tei/Toretoku nella pagina Pokémon, ecc.).
+  const entry = name==="__GLOBAL__" ? (SETIDX.global||{})[activeGame] : (SETIDX.sets||{})[name];
+  if(!entry || !SRC_ORDER.some(s=>entry[s] && entry[s].length)) return;
   idxName=name;
   document.getElementById("mImg").style.display="none";
   const tg=document.getElementById("mToggle"); tg.hidden=false; tg.textContent = idxNormalize?"Mostra ¥":"Indice 100";
-  document.getElementById("mName").textContent = name==="__GLOBAL__" ? "Andamento generale" : name;
-  document.getElementById("mSub").textContent = "Indice di prezzo ponderato" + (name==="__GLOBAL__" ? " (tutti i set)" : " del set");
+  const gname=(GAME_META[activeGame]||{}).name||activeGame||"";
+  document.getElementById("mName").textContent = name==="__GLOBAL__" ? `Andamento ${gname}` : name;
+  document.getElementById("mSub").textContent = "Indice di prezzo ponderato" + (name==="__GLOBAL__" ? ` (tutti i set ${gname})` : " del set");
   document.getElementById("modal").classList.add("on");
   drawIndexChart(document.getElementById("mCanvas"), entry, idxNormalize);
 }

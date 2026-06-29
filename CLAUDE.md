@@ -82,8 +82,8 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   notturno di Hareruya che si auto-coordina su piu' run), `export_web` (JSON
   multi-fonte: ogni riga buylist ha `prices`{source:{price,comm,stock,status,outlier}} + `game`
   + `trend`{source:{d7,d30,d90}}, `best_*` su tutte le fonti; indice/trend per fonte dinamica).
-  `setindex.json`: indice UFFICIALE (`sets`/`global`, pesi fissi alla data base = foglio Charts)
-  + vista NORMALIZZATA anti-outlier (`sets_norm`/`global_norm`, esclude outlier e non-confirmed).
+  `setindex.json`: indice UFFICIALE (`sets` + `global` PER-GIOCO `{game:{source:serie}}`, pesi
+  fissi alla data base = foglio Charts) + vista NORMALIZZATA anti-outlier (`sets_norm`/`global_norm`).
   `ensure_intelligence_columns` aggiunge le colonne Fase 3 ai DB v2 esistenti (idempotente).
   SEGNALI azionabili (`movers.json`): `compute_alerts` (puro) calcola SPREAD best-vs-second tra
   negozi + MOVERS 7gg, usando SOLO prezzi affidabili (confirmed+non-outlier) e `series_norm`
@@ -176,9 +176,6 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
   staleness (qualche notte per coprire tutto). OP/YGO restano PARZIALI: solo `OP01` (43) + `QCCU`
   (200); estendere con `build_catalog.py` set per set. `name_en` Pokémon/OP/YGO assente per le carte
   nuove (solo nome JP): la UI mostra il nome giapponese finché non si traduce.
-- **Indice globale mescola i giochi**: il bottone "Andamento" usa `setindex.global` calcolato
-  su TUTTI i set (ora anche OP/YGO): aggregato poco sensato cross-gioco. Da rendere per-gioco.
-  (I 📈 per-set restano corretti.)
 - **UNIQUE di `tcg_card` include `rarity`**: il vincolo è `(set_id, number, language, rarity,
   variant)`. L'identità VERA di una carta è `(set, number, variant)`: cambiare la rarità e
   ri-catalogare con `INSERT OR IGNORE` creava DUPLICATI. `build_catalog.py` ora fa un controllo
@@ -257,9 +254,10 @@ con stato (aggiornalo a fine fase):
       altrimenti il path legacy `.webp` (Pokémon). Harvest con `build_catalog.py … --images`.
       SCALA (catalogo Pokémon ~10k): render LAZY (set chiusi di default, tile on-demand, cap 400)
       + buylist.json snellito → niente freeze al load. VALUTA: toggle ¥/€ con conversione
-      automatica (tasso live Frankfurter + fallback, persistito in localStorage).
-      ⚠️ Resta: tradurre i nomi OP/YGO+Pokémon nuovi (ora solo JP), indice "Andamento" per-gioco,
-      consumo di `movers.json`.
+      automatica (tasso live Frankfurter + fallback, persistito in localStorage). INDICE
+      "Andamento" PER-GIOCO: `setindex.global` ora è `{game:{source:serie}}`, il bottone usa il
+      gioco attivo → niente più aggregato/fonti cross-gioco (Pokémon = solo CR/HR).
+      ⚠️ Resta: tradurre i nomi OP/YGO+Pokémon nuovi (ora solo JP), consumo di `movers.json`.
 - [~] Fase 5 — scala / ops (in corso)
       ✅ CATALOGO POKÉMON COMPLETO (2026-06-29): `harvest_pokemon_cardrush` prende TUTTE le singole
       buyback da CardRush (10.191 carte / 351 set) — niente più sottoinsieme curato dall'Excel.

@@ -137,8 +137,9 @@ def test_official_index_matches_excel_formula(tmp_path):
     out = str(tmp_path / "data")
     db.export_web(conn, out)
     idx = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
-    assert idx["global"]["cardrush"] == [["2026-01-01", 250.0],
-                                         ["2026-01-08", 232.5]]
+    # 'global' e' PER-GIOCO: l'aggregato Pokémon (contratto = foglio Charts)
+    assert idx["global"]["pokemon"]["cardrush"] == [["2026-01-01", 250.0],
+                                                    ["2026-01-08", 232.5]]
 
 
 def test_official_index_unaffected_by_outlier_but_normalized_excludes_it(tmp_path):
@@ -160,8 +161,8 @@ def test_official_index_unaffected_by_outlier_but_normalized_excludes_it(tmp_pat
     idx = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
 
     # pesi base d0: total=400 -> wA=.25, wB=.75
-    off = dict(idx["global"]["cardrush"])
-    norm = dict(idx["global_norm"]["cardrush"])
+    off = dict(idx["global"]["pokemon"]["cardrush"])
+    norm = dict(idx["global_norm"]["pokemon"]["cardrush"])
     # UFFICIALE d3: 1000*.25 + 300*.75 = 475.0 (lo spike PASSA, come da contratto)
     assert off["2026-01-22"] == 475.0
     # NORMALIZZATO d3: A scartato (outlier) -> resta solo B: 300*.75 / .75 = 300.0
