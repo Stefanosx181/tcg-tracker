@@ -26,10 +26,9 @@ Actions, CardRush applica una regola di **forma della richiesta**, non un ban d'
   (solo quando esce un set nuovo), quindi non e' un collo di bottiglia quotidiano.
 - Le fonti One Piece/Yu-Gi-Oh (Yuyu-tei/Toretoku) danno 403 anche per-carta → servono comunque proxy/PC.
 
-**Budget minuti (repo privato = 2.000 min/mese gratis):** il cron prezzi e' tarato su 1 trigger/notte,
-lotto 900 → copre le ~10k carte in ~10 notti per fonte (i buyback non cambiano a ore). Per copertura
-**piena ogni notte** conviene rendere il **repo PUBBLICO** (minuti Actions illimitati): poi si alza
-`batch` e si rimettono piu' trigger.
+**Cadenza & minuti:** repo **PUBBLICO** = minuti Actions illimitati. Il cron prezzi gira **1 notte a
+settimana** (lunedì), in **4 finestre scaglionate** da 2.600 carte/fonte (4×2.600 = 10.400 ≥ catalogo):
+giro COMPLETO CR+HR ma con Hareruya distribuito su ~9h invece che in un'unica raffica.
 
 **Scoperta via proxy (niente PC):** crea un proxy residenziale pay-as-you-go (es. DataImpulse ~1$/GB;
 l'harvest mensile sono pochi MB = centesimi), salvalo come **GitHub Secret `SCRAPER_PROXY`**
@@ -117,25 +116,9 @@ Cloudflare ridistribuisce comunque la pagina ad ogni push. In questo caso togli 
 blocco `schedule:` dal workflow (o lascialo: non fa danni, semplicemente non trova
 nuovi prezzi).
 
-## Attivare il bottone "Aggiorna ora" (scraping on-demand)
+## Aggiornamento on-demand: RIMOSSO
 
-La dashboard ha un bottone che avvia subito il workflow senza aspettare il lunedì.
-Tecnicamente il bottone chiama `POST /api/trigger` sul Worker, che lancia il
-workflow GitHub usando un token salvato come secret. Per attivarlo, una volta sola:
-
-**1. Crea un token GitHub (fine-grained)**
-- GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token
-- Resource owner: il tuo account · Repository access: Only select repositories → `tcg-tracker`
-- Permissions → Repository permissions → **Actions: Read and write**
-- Generate token → copialo (visibile una volta sola)
-
-**2. Salvalo come secret su Cloudflare**
-- Cloudflare → Workers & Pages → `tcg-tracker` → Settings → Variables and Secrets
-- Add → tipo **Secret** → Name `GH_TOKEN` → Value = il token → Save
-
-Finché il secret non è impostato, il bottone risponde "Token non configurato".
-Il token vive solo nel secret store di Cloudflare: non è mai nella pagina né nel repo.
-
-> Nota: l'endpoint `/api/trigger` è raggiungibile da chi conosce l'URL (nascosto).
-> Avviare uno scraping è un'azione a basso rischio; se vuoi proteggerlo di più si può
-> aggiungere un controllo o Cloudflare Access.
+Il bottone "Aggiorna ora" e l'endpoint `POST /api/trigger` sono stati **rimossi**:
+l'aggiornamento prezzi è SOLO automatico (cron settimanale qui sopra) + eventuale
+`workflow_dispatch` manuale da GitHub → Actions → "Run workflow". Niente token
+`GH_TOKEN` su Cloudflare, niente endpoint pubblico da proteggere.
