@@ -10,11 +10,15 @@ name: Aggiorna prezzi TCG (cloud)
 #   Pacing credibile: --sleep 1 + --jitter + --set-gap. Repo PUBBLICO = minuti illimitati.
 #   Aggiornamento SOLO automatico: nessun bottone/endpoint on-demand.
 on:
+  # Orari pensati in ORA ITALIANA: notte di domenica → lunedì (22:00, 01:00, 04:00, 07:00
+  # locali). GitHub Actions usa SOLO UTC e NON segue l'ora legale, quindi i valori sotto sono
+  # tarati su CEST (estate, UTC+2): da fine ottobre (CET, UTC+1) le finestre slittano 1h
+  # prima in locale — resta comunque notte fonda, effetto trascurabile.
   schedule:
-    - cron: "0 22 * * 0"    # domenica 22:00 UTC (1a finestra)
-    - cron: "0 1 * * 1"     # lunedì 01:00 UTC  (2a)
-    - cron: "0 4 * * 1"     # lunedì 04:00 UTC  (3a)
-    - cron: "0 7 * * 1"     # lunedì 07:00 UTC  (4a)
+    - cron: "0 20 * * 0"    # dom 20:00 UTC = dom 22:00 IT (1a finestra)
+    - cron: "0 23 * * 0"    # dom 23:00 UTC = lun 01:00 IT (2a)
+    - cron: "0 2 * * 1"     # lun 02:00 UTC = lun 04:00 IT (3a)
+    - cron: "0 5 * * 1"     # lun 05:00 UTC = lun 07:00 IT (4a)
   workflow_dispatch:
     inputs:
       batch:
