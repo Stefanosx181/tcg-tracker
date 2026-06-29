@@ -356,6 +356,10 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         allow = _allowed(game)
         if allow is not None:
             pr = {s: v for s, v in pr.items() if s in allow}
+        # One Piece: mostra SOLO i prezzi appena confermati (no carry-forward
+        # stantio), cosi' un tier senza match pulito non resta su un prezzo vecchio.
+        if game == "onepiece":
+            pr = {s: v for s, v in pr.items() if v.get("status") == "confirmed"}
         r["prices"] = pr
         r["game"] = game
         # OP/YGO non hanno il card_code legacy: esponi il numero canonico
@@ -373,6 +377,13 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
                 best_val, best_src = v, src
         r["best_price"] = best_val
         r["best_source"] = best_src
+        # GUARD stampa ambigua (One Piece): se due fonti divergono troppo, quasi
+        # certamente confrontano STAMPE diverse dello stesso numero -> non spacciare
+        # un "migliore"/ratio fuorviante; la UI lo segnala.
+        vals = [v["price"] for v in pr.values() if v.get("price")]
+        if game == "onepiece" and len(vals) >= 2 and min(vals) > 0 \
+                and max(vals) / min(vals) > 4.0:
+            r["print_ambiguous"] = True
 
     # --- serie storica (1 punto/giorno) -----------------------------------
     # UFFICIALE: ultimo prezzo del giorno per carta+fonte, price_raw cosi' com'e'

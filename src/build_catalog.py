@@ -175,22 +175,68 @@ def _short_rarity(rar):
 
 
 def _pick_item(items, number, variant):
-    """Dagli item CardRush sceglie quello della carta (number+variant).
-    Preferisce l'item con/senza marcatore パラレル coerente con la variante."""
-    is_par_target = (variant == "parallel")
-    matched = []
+    """Item CardRush della carta per TIER di stampa (base/parallel/super), escluse
+    le inserzioni rumore (serial/sigillati/esteri/illust); tra le candidate del tier
+    sceglie la stampa principale (prezzo piu' alto)."""
+    want_tier = variant or "base"
+    cands = []
     for it in items:
         if not isinstance(it, dict):
             continue
         model = str(it.get("model_number", ""))
         if not (model == number or model.split("/")[0] == number):
             continue
-        is_par = "パラレル" in (it.get("extra_difference") or "")
-        if is_par == is_par_target:
-            matched.append(it)
-    pool = matched or [it for it in items if isinstance(it, dict)
-                       and str(it.get("model_number", "")) == number]
-    return pool[0] if pool else None
+        if sc.is_noise_listing(it.get("extra_difference")):
+            continue
+        if sc.print_tier_cardrush(it.get("rarity"), it.get("extra_difference")) != want_tier:
+            continue
+        cands.append(it)
+    return max(cands, key=lambda it: int(it.get("amount") or 0)) if cands else None
+
+
+def ensure_op_tier_cards(conn, *, client=None):
+    """Per ogni numero One Piece crea le carte mancanti dei TIER 'parallel'/'super'
+    presenti su CardRush o Toretoku (la 'base' = variant '' esiste gia'). Cosi' ogni
+    stampa ha una carta propria e le fonti la confrontano per tier. Ritorna #aggiunte."""
+    client = client or sc._default_client()
+    db.ensure_image_column(conn)
+    rows = conn.execute("""SELECT c.id, c.set_id, c.number, c.variant, c.name, c.cardrush_url
+                           FROM tcg_card c JOIN tcg_set s ON s.id = c.set_id
+                           WHERE s.game_code = 'onepiece'""").fetchall()
+    by_num = {}
+    for cid, set_id, number, variant, name, url in rows:
+        by_num.setdefault(number, {})[variant] = (set_id, name, url)
+    # Toretoku una volta sola
+    tt_tiers = {}
+    try:
+        for it in sc.parse_toretoku(client.get(ad.ToretokuAdapter.URL).text):
+            tt_tiers.setdefault(it["number"], set()).add(sc.print_tier_from_name(it["name"]))
+    except Exception as e:
+        print(f"  toretoku tiers KO: {e}")
+    added = 0
+    for number, variants in by_num.items():
+        url = next((u for (_, _, u) in variants.values() if u), None)
+        tiers = set(tt_tiers.get(number, set()))
+        if url:
+            try:
+                for it in sc.parse_cardrush(client.get(url).text):
+                    if str(it.get("model_number")) != number:
+                        continue
+                    if sc.is_noise_listing(it.get("extra_difference")):
+                        continue
+                    tiers.add(sc.print_tier_cardrush(it.get("rarity"), it.get("extra_difference")))
+            except Exception as e:
+                print(f"  cardrush tiers KO {number}: {e}")
+        template = variants.get("parallel") or variants.get("") or next(iter(variants.values()))
+        set_id, name, t_url = template
+        for tier in ("parallel", "super"):
+            if tier in tiers and tier not in variants:
+                conn.execute("""INSERT INTO tcg_card
+                      (set_id, number, language, variant, name, cardrush_url)
+                    VALUES (?,?,?,?,?,?)""", (set_id, number, "JP", tier, name, t_url))
+                added += 1
+    conn.commit()
+    return added
 
 
 def _pick_rarity(items, number, variant):

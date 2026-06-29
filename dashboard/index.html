@@ -81,6 +81,8 @@
   .bar{height:4px;border-radius:3px;background:#0a0d16;overflow:hidden;margin-top:3px}
   .bar i{display:block;height:100%}
   .bar i.cr{background:var(--cr)} .bar i.hr{background:var(--hr)} .bar i.yt{background:var(--yt)} .bar i.tt{background:var(--tt)}
+  .amb{margin-top:7px;font-size:10.5px;color:var(--stale);border:1px solid #5a4a23;
+       border-radius:7px;padding:3px 7px;display:inline-block;cursor:help}
   .empty{padding:50px;text-align:center;color:var(--muted)}
 
   /* modal grafico */
@@ -335,6 +337,7 @@ function render(){
            <div class="prices">
              ${s.sources.map(src=>priceRow(SRC_META[src].tag,SRC_META[src].cls,priceOf(c,src),stockOf(c,src),(c._w||{})[src])).join("")}
            </div>
+           ${c.print_ambiguous?'<div class="amb" title="Le fonti hanno prezzi molto diversi: probabili STAMPE diverse dello stesso numero. Confronto non affidabile.">⚠ stampa ambigua</div>':''}
          </div>`;
       tile.onclick=()=>openChart(c);
       grid.appendChild(tile);

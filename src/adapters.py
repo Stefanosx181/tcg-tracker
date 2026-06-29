@@ -139,6 +139,7 @@ class CardRushAdapter(SourceAdapter):
             "model":   (qs.get("model_number") or [""])[0].strip(),
             "pack":    (qs.get("pack_code") or [""])[0].strip(),
             "variant": _field(card, "variant", "") or "",
+            "game":    _field(card, "game_code", "") or "",
         })
 
     def fetch(self, query: Query, client) -> str:
@@ -148,6 +149,10 @@ class CardRushAdapter(SourceAdapter):
         items = sc.parse_cardrush(raw)        # puo' sollevare LayoutError
         want_model = query.match.get("model", "")
         want_pack = query.match.get("pack", "")
+        # One Piece: aggancio per TIER di stampa (base/parallel/super) + filtro rumore,
+        # cosi' fonti diverse confrontano la STESSA stampa. Altri giochi: invariato.
+        op = query.match.get("game") == "onepiece"
+        want_tier = (query.match.get("variant", "") or "") or "base"
         offers = []
         for it in items:
             if not isinstance(it, dict):
@@ -166,9 +171,24 @@ class CardRushAdapter(SourceAdapter):
                 price = int(float(amt))
             except (TypeError, ValueError):
                 continue
-            variant = (it.get("extra_difference") or "").strip()
-            offers.append(Offer(price=price, variant=variant))
+            if op:
+                extra = it.get("extra_difference") or ""
+                if sc.is_noise_listing(extra):
+                    continue
+                if sc.print_tier_cardrush(it.get("rarity"), extra) != want_tier:
+                    continue
+                offers.append(Offer(price=price))
+            else:
+                variant = (it.get("extra_difference") or "").strip()
+                offers.append(Offer(price=price, variant=variant))
         return offers
+
+    def select(self, offers, query=None):
+        # OP: gli offer sono gia' filtrati al tier giusto in parse -> max diretto
+        # (il match per token パラレル non vale sui tier). Altri giochi: standard.
+        if query and query.match.get("game") == "onepiece":
+            return max(offers, key=lambda o: o.price) if offers else None
+        return super().select(offers, query)
 
 
 # ----------------------------------------------------------------------
@@ -299,6 +319,7 @@ class ToretokuAdapter(SourceAdapter):
     def parse(self, raw: str, query: Query) -> list:
         items = sc.parse_toretoku(raw)        # puo' sollevare LayoutError
         want = (query.match.get("number") or "").upper()
+        want_tier = (query.match.get("variant", "") or "") or "base"
         offers = []
         for it in items:
             if (it.get("number") or "").upper() != want:
@@ -306,10 +327,15 @@ class ToretokuAdapter(SourceAdapter):
             p = it.get("price")
             if not p:
                 continue
-            # la variante (parallel) e' nel nome, come Yuyu-tei
-            variant = "パラレル" if "パラレル" in (it.get("name") or "") else ""
-            offers.append(Offer(price=p, variant=variant))
+            # tier di stampa dal nome (base/parallel/super), come CardRush via rarita'
+            if sc.print_tier_from_name(it.get("name")) != want_tier:
+                continue
+            offers.append(Offer(price=p))
         return offers
+
+    def select(self, offers, query=None):
+        # offer gia' filtrati al tier in parse -> max diretto
+        return max(offers, key=lambda o: o.price) if offers else None
 
 
 # ----------------------------------------------------------------------

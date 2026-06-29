@@ -74,7 +74,22 @@ Stesso controllo su Yu-Gi-Oh (set QCCU, 199 carte confrontate, prezzo d'acquisto
   normali con più rarità per carta avrebbero lo stesso problema di OP: rivedere quando si aggiungono.)
 
 **Decisione**: cambiare fonte **solo per One Piece** (→ Toretoku). Per **Yu-Gi-Oh tenere Yuyu-tei**.
-Il miglioramento del matching (disambiguazione stampe) è utile a entrambi.
+
+## Matching One Piece — implementato (tier + confirmed-only + guard)
+
+Lo stesso numero ha piu' STAMPE con prezzi 10-1000x diversi. Soluzione a strati:
+1. **Tier** (base/parallel/super) dalla rarita' CardRush (`/P`,`/SP`) + marker `パラレル` in extra;
+   il confronto tra fonti avviene PER TIER. Filtro **rumore** = solo special non-grezzi
+   (serial/sigillati/esteri/promo); NON si filtra `illust:`/sfondi (arte legittima).
+2. **Confirmed-only (solo OP)** in `export_web`: si mostrano solo i prezzi appena confermati →
+   un tier senza match pulito non resta su un carry-forward vecchio (niente ¥650k fantasma).
+3. **Guard 'stampa ambigua'**: se due fonti divergono >4x → `print_ambiguous` (la UI lo segnala),
+   niente best/ratio fuorviante. Copre la coda irriducibile (arti esclusive di una fonte, es.
+   `illust:Studio Vigor` solo su CardRush).
+
+Risultato (OP01): **19 confronti puliti, mediana 1.9, max 2.9** (era 216x), 1 carta segnalata.
+⚠️ Precisione MASSIMA (match per singola arte `海賊旗背景`/`漫画背景` con catalogo per-stampa da
+CardRush) resta estensione futura: il guard rende comunque onesto il residuo.
 
 ## Fonti
 - Toretoku One Piece: https://kaitori-toretoku.jp/onepiece , https://kaitori-toretoku.jp/buypricelist/onepiece

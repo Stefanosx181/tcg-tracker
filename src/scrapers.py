@@ -434,6 +434,58 @@ def parse_toretoku(html: str) -> list:
     return out
 
 
+# ----------------------------------------------------------------------
+# Stampe One Piece: tier canonico + filtro rumore (solo OP)
+# ----------------------------------------------------------------------
+# Una stessa carta (numero) ha piu' STAMPE con prezzi diversissimi. Per un
+# confronto buyback sensato le riconduciamo a 3 TIER canonici e scartiamo le
+# inserzioni "rumore" (serial/sigillati/esteri/illust alternative), che non sono
+# la carta grezza standard. Vedi docs/SOURCES_BUYBACK_OP_YGO.md.
+PRINT_TIERS = ("base", "parallel", "super")
+# SOLO special che NON sono la carta grezza standard: serial/sigillati/esteri/promo.
+# NB: 'illust:' (credito illustratore) e gli sfondi (漫画背景 ecc.) NON sono rumore:
+# sono arte legittima di stampe normali; filtrarli scartava parallel valide.
+_NOISE_TOKENS = ("シリアル", "未開封", "開封品", "中国版", "英語版", "アジア", "Asia",
+                 "NOT FOR SALE", "ノーマル仕様")
+
+
+def is_noise_listing(marker: str) -> bool:
+    """Inserzione da SCARTARE nel confronto OP (serial/sigillato/estero/illust)."""
+    s = marker or ""
+    return any(tok in s for tok in _NOISE_TOKENS)
+
+
+def print_tier_cardrush(rarity: str, extra: str = "") -> str:
+    """Tier di una stampa CardRush combinando rarita' + extra_difference.
+    CardRush e' incoerente: a volte la parallel e' nel suffisso rarita' ('/P','/SP'),
+    a volte SOLO in extra ('パラレル') con rarita' base. Regola:
+      super    = rarita' .../SP
+      parallel = rarita' .../P  OPPURE 'パラレル' nell'extra
+      base     = altrimenti."""
+    r = (rarity or "").upper()
+    e = extra or ""
+    if r.endswith("/SP"):
+        return "super"
+    if r.endswith("/P") or "パラレル" in e:
+        return "parallel"
+    return "base"
+
+
+# compat: vecchio nome (solo rarita')
+def print_tier_from_rarity(rarity: str) -> str:
+    return print_tier_cardrush(rarity, "")
+
+
+def print_tier_from_name(name: str) -> str:
+    """Tier dal nome (Toretoku/Yuyu-tei): SP/漫画/スーパー->super, パラレル->parallel."""
+    n = name or ""
+    if "SP" in n or "漫画" in n or "スーパー" in n:
+        return "super"
+    if "パラレル" in n:
+        return "parallel"
+    return "base"
+
+
 def polite_sleep(sec=1.0):
     """Deprecata: il rate-limiting e' ora in HttpClient. Mantenuta per compat."""
     time.sleep(sec)

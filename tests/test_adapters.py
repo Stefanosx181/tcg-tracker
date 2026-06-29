@@ -175,20 +175,25 @@ OP_CARD_STD = {
 OP_CARD_PARALLEL = dict(OP_CARD_STD, id=101, variant="parallel")
 
 
-def test_cardrush_op_standard_picks_extra_difference_empty():
+def test_cardrush_op_base_tier_excludes_noise():
     a = ad.CardRushAdapter()
     offer = a.scrape(OP_CARD_STD, _FakeClient(CARDRUSH_OP_HTML))
-    # la standard (extra_difference vuoto) per OP01-001 e' la carta base
-    assert offer is not None and offer.variant == ""
-    assert offer.price == 100
+    # tier base: max delle stampe NON-rumore (escluso il 40000 marcato 未開封) -> 35000
+    assert offer is not None and offer.price == 35000
 
 
-def test_cardrush_op_parallel_picks_parallel_listing():
+def test_cardrush_op_parallel_tier():
     a = ad.CardRushAdapter()
     offer = a.scrape(OP_CARD_PARALLEL, _FakeClient(CARDRUSH_OP_HTML))
-    # la variante 'parallel' deve selezionare il listing con 'パラレル'
-    assert offer is not None and "パラレル" in offer.variant
-    assert offer.price == 30000
+    # tier parallel (rarita' L/P) -> 30000
+    assert offer is not None and offer.price == 30000
+
+
+def test_cardrush_op_pokemon_unaffected_by_tier_logic():
+    # la logica tier vale SOLO per One Piece: i Pokemon restano sul percorso classico
+    a = ad.CardRushAdapter()
+    offer = a.scrape(CARD, _FakeClient(CARDRUSH_HTML))
+    assert offer is not None and offer.price > 0
 
 
 def test_cardrush_supports_all_games_hareruya_only_pokemon():
@@ -246,7 +251,19 @@ def test_toretoku_build_query_single_list():
 def test_toretoku_adapter_scrape_op_parallel():
     a = ad.ToretokuAdapter()
     par = a.scrape(OP_CARD_PARALLEL, _FakeClient(TORETOKU_OP_HTML))
-    assert par is not None and "パラレル" in par.variant and par.price > 0
+    # tier parallel di OP01-001 su Toretoku -> 16400 (買取)
+    assert par is not None and par.price == 16400
+
+
+def test_toretoku_super_tier_separato_dal_parallel():
+    # OP01-016: il tier 'super' (パラレル/SP, 漫画) non deve finire nel tier 'parallel'
+    a = ad.ToretokuAdapter()
+    op16 = dict(OP_CARD_PARALLEL, number="OP01-016", card_code="OP01-016")
+    op16_sp = dict(op16, variant="super")
+    par = a.scrape(op16, _FakeClient(TORETOKU_OP_HTML))
+    sup = a.scrape(op16_sp, _FakeClient(TORETOKU_OP_HTML))
+    assert par is not None and sup is not None
+    assert sup.price > par.price        # il super costa piu' del parallel
 
 
 def test_toretoku_parse_layout_error():
