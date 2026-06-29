@@ -11,10 +11,10 @@ name: Aggiorna prezzi TCG (cloud)
 #   Aggiornamento SOLO automatico: nessun bottone/endpoint on-demand.
 on:
   schedule:
-    - cron: "0 22 * * 1"    # lunedì 22:00 UTC  (1a finestra)
-    - cron: "0 1 * * 2"     # martedì 01:00 UTC (2a)
-    - cron: "0 4 * * 2"     # martedì 04:00 UTC (3a)
-    - cron: "0 7 * * 2"     # martedì 07:00 UTC (4a)
+    - cron: "0 22 * * 0"    # domenica 22:00 UTC (1a finestra)
+    - cron: "0 1 * * 1"     # lunedì 01:00 UTC  (2a)
+    - cron: "0 4 * * 1"     # lunedì 04:00 UTC  (3a)
+    - cron: "0 7 * * 1"     # lunedì 07:00 UTC  (4a)
   workflow_dispatch:
     inputs:
       batch:
