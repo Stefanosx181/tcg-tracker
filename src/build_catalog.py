@@ -18,6 +18,7 @@ Uso:
   (--html FILE = cataloga OFFLINE da una fixture; --db FILE = altro database)
 """
 import os
+import re
 import sys
 import argparse
 import urllib.parse as urlparse
@@ -27,6 +28,7 @@ sys.path.insert(0, HERE)
 import scrapers as sc          # noqa: E402
 import adapters as ad          # noqa: E402
 import database as db          # noqa: E402
+import op_match as om          # noqa: E402
 
 # cartella immagini della dashboard (stessa dei Pokemon)
 _DEFAULT_IMAGES = os.path.join(HERE, "..", "dashboard", "images")
@@ -285,6 +287,74 @@ def enrich_from_cardrush(conn, game_code, set_code, *, client=None, images_dir=N
                     img_n += 1
     conn.commit()
     return rar_n, img_n, len(rows)
+
+
+def rebuild_onepiece_prints(conn, set_code, set_name, *, client=None,
+                            display_order=100, min_single=3000):
+    """PRECISIONE MASSIMA One Piece: per ogni numero del set riconcilia le stampe
+    CardRush<->Toretoku (op_match.reconcile) e ricostruisce una carta PER STAMPA con
+    i prezzi gia' agganciati alla STESSA arte. Tiene le coppie a due fonti + le stampe
+    single-fonte di valore (>= min_single). RIMPIAZZA le carte OP del set (i prezzi OP
+    sono dati di test recenti). Ritorna (#carte, #coppie a due fonti)."""
+    client = client or sc._default_client()
+    db.ensure_image_column(conn)
+    set_id = _ensure_set(conn, "onepiece", set_code, set_name, display_order)
+    conn.execute("INSERT OR IGNORE INTO tcg_source (source_code, display_name) VALUES (?,?)",
+                 ("toretoku", "Toretoku"))
+    # numeri e nome-base (carattere senza suffisso d'arte) dal catalogo esistente
+    rows = conn.execute("SELECT DISTINCT number, name FROM tcg_card WHERE set_id=?",
+                        (set_id,)).fetchall()
+    base_name = {}
+    for number, name in rows:
+        clean = re.sub(r"[\(（].*?[\)）]", "", name or "").strip()
+        base_name.setdefault(number, clean or number)
+    numbers = [n for n in base_name if n and n != "-"]
+
+    tt_items = sc.parse_toretoku(client.get(ad.ToretokuAdapter.URL).text)
+
+    # via le vecchie carte OP del set (e i loro prezzi recenti): rimpiazzo per-stampa
+    conn.execute("DELETE FROM tcg_price WHERE card_id IN (SELECT id FROM tcg_card WHERE set_id=?)",
+                 (set_id,))
+    conn.execute("DELETE FROM tcg_card WHERE set_id=?", (set_id,))
+    conn.commit()
+
+    images_dir = _DEFAULT_IMAGES
+    tier_rarity = {"base": "", "parallel": "P", "super": "SP"}
+    cards = pairs = 0
+    for number in numbers:
+        cr_items = sc.parse_cardrush(client.get(_cardrush_url("onepiece", number)).text)
+        cr = om._cardrush_listings(cr_items, number)
+        tt = om._toretoku_listings(tt_items, number)
+        # una immagine per numero (dal listing CardRush), condivisa dalle sue stampe
+        img_url = None
+        for it in cr_items:
+            if str(it.get("model_number")) == number:
+                op = it.get("ocha_product") or {}
+                src = op.get("image_source") if isinstance(op, dict) else None
+                if src:
+                    img_url = _download_image(src, images_dir, number, "", client)
+                    break
+        for p in om.reconcile(cr, tt):
+            both = p["cardrush"] and p["toretoku"]
+            if not both and max(p["cardrush"] or 0, p["toretoku"] or 0) < min_single:
+                continue
+            art = "/".join(sorted(p["art"]))
+            variant = p["tier"] + ("#" + art if art else "")
+            name = base_name[number] + (f" ({art})" if art else "")
+            conn.execute("""INSERT INTO tcg_card
+                  (set_id, number, language, rarity, variant, name, cardrush_url, image_url)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (set_id, number, "JP", tier_rarity.get(p["tier"], ""),
+                 variant[:120], name[:200], _cardrush_url("onepiece", number), img_url))
+            cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            if p["cardrush"]:
+                db.save_price(conn, cid, "cardrush", p["cardrush"])
+            if p["toretoku"]:
+                db.save_price(conn, cid, "toretoku", p["toretoku"])
+            cards += 1
+            pairs += 1 if both else 0
+    conn.commit()
+    return cards, pairs
 
 
 def main(argv):

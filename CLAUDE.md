@@ -159,10 +159,12 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - **best_price = max()**: può catturare una variante/error card invece della standard. Ora il
   flag `is_outlier` (vs mediana storica) la segnala e la vista normalizzata la esclude
   dall'indice, ma la SELEZIONE del best_price è ancora `max()`: migliorabile.
-- **One Piece multi-stampa**: stesso numero = più stampe (10-1000x). Gestito con TIER
-  (base/parallel/super) + filtro rumore + confirmed-only (solo OP) + GUARD `print_ambiguous`
-  (>4x → la UI segnala, niente ratio fuorviante). Vedi `docs/SOURCES_BUYBACK_OP_YGO.md`. La
-  precisione per-arte (`海賊旗背景`/`漫画背景`, catalogo per-stampa da CardRush) è estensione futura.
+- **One Piece multi-stampa**: stesso numero = più stampe (10-1000x). PRECISIONE MASSIMA:
+  `src/op_match.py` riconcilia CardRush↔Toretoku per tier + similarità d'arte; catalogo OP =
+  una carta per STAMPA (`build_catalog.rebuild_onepiece_prints`), prezzi agganciati alla stessa
+  arte; stampe esclusive di una fonte → single-fonte. Più filtro rumore + confirmed-only (solo OP)
+  + GUARD `print_ambiguous` (>4x) come backstop. OP01: 20 coppie, mediana 1.53, max 2.7. Vedi
+  `docs/SOURCES_BUYBACK_OP_YGO.md`. (Catalogo OP = solo stampe a 2 fonti + single-fonte ≥¥3.000.)
 - **DB committato a ogni run**: gonfia la history git nel tempo.
 - **Casing incoerente** nei dati: `S12a` vs `SV1V`; `full_name` mescola JP/EN e ripete il set.
 

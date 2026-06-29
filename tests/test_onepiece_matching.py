@@ -35,6 +35,31 @@ def _op_db(path):
     return conn
 
 
+def test_reconcile_matches_same_print():
+    import op_match as om
+    cr = [
+        {"tier": "parallel", "art": frozenset({"海賊旗背景", "漫画絵"}), "price": 6000},
+        {"tier": "parallel", "art": frozenset(), "price": 600},
+        {"tier": "base", "art": frozenset({"illust:Studio Vigor"}), "price": 330000},
+        {"tier": "base", "art": frozenset(), "price": 150},
+    ]
+    tt = [
+        {"tier": "parallel", "art": frozenset({"海賊旗背景"}), "price": 3000},
+        {"tier": "base", "art": frozenset(), "price": 4900},
+    ]
+    prints = om.reconcile(cr, tt)
+    by = {(p["tier"], "/".join(sorted(p["art"])) or "plain"):
+          (p["cardrush"], p["toretoku"]) for p in prints}
+    # la parallel 海賊旗背景 si aggancia (6000 vs 3000)
+    assert by[("parallel", "海賊旗背景/漫画絵")] == (6000, 3000)
+    # la base plain si aggancia a Toretoku plain (150 vs 4900), NON il 330000
+    assert by[("base", "plain")] == (150, 4900)
+    # il 330000 (illust esclusivo CardRush) resta SINGLE-fonte
+    assert by[("base", "illust:Studio Vigor")] == (330000, None)
+    # la parallel plain CardRush senza pari -> single-fonte
+    assert by[("parallel", "plain")] == (600, None)
+
+
 def _rows(out):
     return {r["card_code"]: r for r in
             json.load(open(os.path.join(out, "buylist.json"), encoding="utf-8"))["rows"]}

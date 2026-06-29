@@ -87,9 +87,19 @@ Lo stesso numero ha piu' STAMPE con prezzi 10-1000x diversi. Soluzione a strati:
    niente best/ratio fuorviante. Copre la coda irriducibile (arti esclusive di una fonte, es.
    `illust:Studio Vigor` solo su CardRush).
 
-Risultato (OP01): **19 confronti puliti, mediana 1.9, max 2.9** (era 216x), 1 carta segnalata.
-⚠️ Precisione MASSIMA (match per singola arte `海賊旗背景`/`漫画背景` con catalogo per-stampa da
-CardRush) resta estensione futura: il guard rende comunque onesto il residuo.
+4. **PRECISIONE MASSIMA — match per-STAMPA** (`src/op_match.py` + `build_catalog.rebuild_onepiece_prints`):
+   per ogni numero si RICONCILIANO le inserzioni CardRush↔Toretoku dentro ogni tier, accoppiando
+   per SIMILARITA' dei token d'arte (`海賊旗背景`↔`海賊旗背景`, Jaccard; greedy globale sui pair piu'
+   simili). Il catalogo OP diventa **una carta per STAMPA** (es. `OP01-016 (漫画絵/漫画背景)`), coi
+   prezzi gia' agganciati alla stessa arte. Le stampe esclusive di una fonte (`illust:Studio Vigor`
+   solo CardRush, `SP` solo Toretoku) restano single-fonte → niente confronto falso. Test:
+   `op_match.reconcile` in `tests/test_onepiece_matching.py`.
+
+Risultato (OP01, per-stampa): **20 coppie confrontate, mediana 1.53, max 2.7** (era 216x),
+1 sola ambigua. Il ¥330k `illust:Studio Vigor` e il super ¥210k ora sono correttamente single-fonte.
+Nota: si mostrano le stampe a 2 fonti + le single-fonte di valore (≥¥3.000); i comuni
+sotto-soglia non vengono cataloghati (precisione, non copertura). Coprire i comuni = aggiungere
+una 3ª fonte che li prezza (Toretoku non li pubblica).
 
 ## Fonti
 - Toretoku One Piece: https://kaitori-toretoku.jp/onepiece , https://kaitori-toretoku.jp/buypricelist/onepiece
