@@ -93,6 +93,11 @@ def main():
         except (requests.RequestException, sc.LayoutError) as e:
             conn.close()
             print(f"\nHarvest SALTATO: la lista buyback CardRush non e' raggiungibile da qui ({e}).")
+            # In CI (job di scoperta) un blocco e' un ERRORE da notificare; in locale
+            # (PC) e' un'uscita pulita (li' la lista funziona, un blip non deve sporcare).
+            if os.environ.get("CI"):
+                print("In CI l'endpoint-lista risulta bloccato (403?): esco con codice 2 per notificare.")
+                sys.exit(2)
             print("Probabile blocco IP datacenter: eseguilo dal PC -> py src/run.py --harvest-pokemon")
             return
         n = db.export_web(conn, DATA_DIR)

@@ -1,0 +1,60 @@
+name: Scoperta catalogo Pokémon (harvest CardRush)
+
+# Scopre carte/set NUOVI e rinfresca catalogo + prezzi CardRush via l'endpoint-LISTA
+# di CardRush, usato nella forma COMPLETA della SPA (vedi scrapers.pokemon_cardrush_url):
+# stessa forma che sblocca il per-carta dal cloud. Operazione RARA (mensile) e separata
+# dal job prezzi notturno, cosi' un eventuale 403 sulla lista non blocca il refresh prezzi.
+# CI=true -> se la lista tornasse a dare 403, il job FALLISCE e arriva la notifica.
+on:
+  schedule:
+    - cron: "0 3 1 * *"     # il 1o di ogni mese, 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# stesso gruppo del job prezzi: non sovrapporre due scritture sul DB
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout (include lo storico committato)
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installa dipendenze
+        run: pip install -r requirements.txt
+
+      - name: Crea il DB se manca (storico preservato se gia' presente)
+        run: python src/init_db.py
+
+      # Harvest catalogo + prezzi CardRush (lista in forma SPA). Se la lista da' 403,
+      # run.py esce con codice 2 (CI=true) -> job rosso + notifica.
+      - name: Harvest catalogo Pokémon (lista CardRush forma SPA)
+        run: python src/run.py --harvest-pokemon
+
+      - name: Commit dei dati aggiornati
+        run: |
+          git config user.name  "tcg-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase --autostash || true
+          git add tcg_tracker.db dashboard/data/*.json dashboard/buylist_live.json
+          if git diff --staged --quiet; then
+            echo "Nessuna variazione da committare."
+          else
+            git commit -m "chore: catalogo+prezzi CardRush $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
