@@ -121,7 +121,11 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 - `dashboard/index.html` — **UNICA UI** (la padrona), servita da Cloudflare (Worker + asset
   statici, vedi `wrangler.jsonc`/`worker.js`). Vanilla JS + Chart.js; layout a griglia di card
   con immagine, prezzi CR/HR/YT, totali per set, modal con grafico storico; dati via `fetch`
-  di `data/*.json`. NIENTE dati inline.
+  di `data/*.json`. NIENTE dati inline. RENDER LAZY (per il catalogo ~10k carte): i set sono
+  CHIUSI di default, le tile si costruiscono solo per i set aperti (clic / filtro set / ricerca),
+  cap `MAX_TILES=400` per render. Toggle VALUTA ¥/€ (`#curBtn`): `YEN()` è currency-aware
+  (converte tile/totali/grafici al re-render); tasso JPY→EUR vivo da `api.frankfurter.app`
+  (`ensureRate`, una volta) con `FALLBACK_RATE` se l'API è giù; scelta persistita in localStorage.
 - `dashboard/app.py` — anteprima LOCALE che serve gli STESSI file statici di Cloudflare
   (`index.html`+`data/`+`images/`), così localhost è identico al sito. Non c'è un secondo
   template. `/api/trigger` in locale è un no-op 501 (esiste solo sul Worker). Per fedeltà
@@ -192,9 +196,9 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - **DB committato a ogni run + catalogo grande**: con ~10k carte Pokémon ogni notte si
   aggiungono ~10k righe prezzo CR + i lotti Hareruya → `tcg_tracker.db` cresce in fretta e gonfia
   la history git. Da affrontare in Fase 5 (es. salvare solo i prezzi CAMBIATI, o DB fuori da git).
-- **buylist.json ENORME (~8 MB)**: con 10k carte la UI fa `fetch` dell'intero file al load →
-  caricamento/rendering lenti. Follow-up UX (Fase 4): paginazione/lazy per set o file per-gioco,
-  oppure caricare solo l'indice e i dettagli on-demand. Non è un bug, è scala.
+- **buylist.json grande (~4.3 MB)**: il freeze al load è RISOLTO (render lazy + file snellito da
+  ~8MB a ~4.3MB, vedi `dashboard/index.html`). Resta un fetch da qualche MB: se servisse ancora
+  più leggero, prossimo passo = split per-set / per-gioco o catalogo+dettaglio on-demand.
 - **Rumore nel catalogo Pokémon completo**: 351 "set" includono micro-bucket di CardRush
   (codici di 1 carattere, `その他`, voci `model_number` non-carta come `旧裏`); alcune carte hanno
   rarità `-`/vuota. È il prezzo di "tutte le carte"; eventuale pulizia = filtro AGGIUNTIVO, non
@@ -251,6 +255,9 @@ con stato (aggiornalo a fine fase):
       IMMAGINI OP/YGO: scaricate da Yuyu-tei in `dashboard/images/` (43 OP + 200 YGO = 243),
       colonna `tcg_card.image_url` + campo `image` nel buylist; la UI usa `c.image` se presente,
       altrimenti il path legacy `.webp` (Pokémon). Harvest con `build_catalog.py … --images`.
+      SCALA (catalogo Pokémon ~10k): render LAZY (set chiusi di default, tile on-demand, cap 400)
+      + buylist.json snellito → niente freeze al load. VALUTA: toggle ¥/€ con conversione
+      automatica (tasso live Frankfurter + fallback, persistito in localStorage).
       ⚠️ Resta: tradurre i nomi OP/YGO+Pokémon nuovi (ora solo JP), indice "Andamento" per-gioco,
       consumo di `movers.json`.
 - [~] Fase 5 — scala / ops (in corso)

@@ -157,6 +157,7 @@
     <input id="search" placeholder="Cerca carta o codice…" autocomplete="off">
     <select id="setFilter"><option value="">Tutti i set</option></select>
     <button id="globalIdxBtn" title="Andamento del prezzo medio ponderato di tutti i set">📈 Andamento</button>
+    <button id="curBtn" title="Mostra i prezzi in Euro (conversione automatica)">€ Euro</button>
     <button id="refreshBtn" title="Avvia subito lo scraping dei prezzi">↻ Aggiorna ora</button>
     <span id="refreshMsg"></span>
   </div>
@@ -181,7 +182,20 @@
 </div>
 
 <script>
-const YEN = n => (n==null||n===0) ? "—" : "¥" + Number(n).toLocaleString("ja-JP");
+// Valuta visualizzata: ¥ (default) o € con conversione automatica. Il tasso JPY→EUR
+// e' vivo (Frankfurter/ECB) con ripiego se l'API non risponde. Tutti i prezzi passano
+// da YEN(): renderla currency-aware converte tile, totali e grafici al re-render.
+const LS = (typeof localStorage!=="undefined") ? localStorage
+         : {getItem:()=>null, setItem:()=>{}};
+let CUR = LS.getItem("cur")==="EUR" ? "EUR" : "JPY";   // valuta attiva
+let RATE = null;                                       // 1 ¥ in € (tasso vivo)
+const FALLBACK_RATE = 0.0062;                          // ripiego se l'API e' giu'
+const YEN = n => {
+  if(n==null||n===0) return "—";
+  if(CUR==="EUR"){ const r = RATE || FALLBACK_RATE;
+    return "€" + (n*r).toLocaleString("it-IT",{maximumFractionDigits:2}); }
+  return "¥" + Number(n).toLocaleString("ja-JP");
+};
 const PCT = n => (n==null) ? "—" : n.toFixed(1) + "%";
 const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 // `expanded` = set APERTI dall'utente. Con il catalogo completo (~10k carte / 351 set)
@@ -236,6 +250,9 @@ async function load(){
   buildSets();
   activeGame = gamesPresent()[0] || null;     // di default il primo gioco (Pokémon)
   refreshForGame();
+  // valuta: ripristina la scelta salvata; se è € carica il tasso e riconverte
+  updateCurBtn();
+  if(CUR==="EUR") ensureRate().then(()=>{ updateCurBtn(); updateGrand(); render(); });
 }
 
 // Schede per gioco: una sola scheda visibile alla volta, niente giochi mescolati.
@@ -253,6 +270,16 @@ function buildGameTabs(){
   }
 }
 
+// Totale per fonte del gioco attivo (currency-aware via YEN).
+function updateGrand(){
+  const mine = SETS.filter(s=>s.game===activeGame);
+  const gt={};
+  mine.forEach(s=> s.sources.forEach(src=>{ gt[src]=(gt[src]||0)+(s.totals[src]||0); }));
+  const gparts=SRC_ORDER.filter(src=>src in gt).map(src=>
+    `${SRC_META[src].name} <span style="color:var(--${SRC_META[src].cls});font-weight:700">${YEN(gt[src])}</span>`);
+  document.getElementById("grand").innerHTML = gparts.length ? "Totale — "+gparts.join(" · ") : "";
+}
+
 // Ripopola set-filter + totale per il gioco attivo, poi ridisegna.
 function refreshForGame(){
   buildGameTabs();
@@ -260,12 +287,34 @@ function refreshForGame(){
   const sel=document.getElementById("setFilter");
   sel.innerHTML='<option value="">Tutti i set</option>';
   mine.forEach(s=>{ const o=document.createElement("option"); o.value=o.textContent=s.name; sel.appendChild(o); });
-  const gt={};
-  mine.forEach(s=> s.sources.forEach(src=>{ gt[src]=(gt[src]||0)+(s.totals[src]||0); }));
-  const gparts=SRC_ORDER.filter(src=>src in gt).map(src=>
-    `${SRC_META[src].name} <span style="color:var(--${SRC_META[src].cls});font-weight:700">${YEN(gt[src])}</span>`);
-  document.getElementById("grand").innerHTML = gparts.length ? "Totale — "+gparts.join(" · ") : "";
+  updateGrand();
   render();
+}
+
+// Valuta: tasso JPY→EUR vivo (Frankfurter/ECB), una volta sola; ripiego se l'API e' giu'.
+async function ensureRate(){
+  if(RATE!=null) return;
+  try{
+    const j = await fetch("https://api.frankfurter.app/latest?from=JPY&to=EUR").then(r=>r.json());
+    if(j && j.rates && typeof j.rates.EUR==="number") RATE = j.rates.EUR;
+  }catch(e){ /* offline / API giu' -> uso il ripiego */ }
+  if(RATE==null) RATE = FALLBACK_RATE;
+}
+function updateCurBtn(){
+  const b=document.getElementById("curBtn");
+  if(CUR==="EUR"){
+    b.textContent="¥ Yen";
+    const approx = RATE ? `1.000 ¥ ≈ ${(1000*RATE).toLocaleString("it-IT",{maximumFractionDigits:2})} €` : "";
+    b.title = (approx?approx+" — ":"") + "clic per tornare ai Yen";
+  } else {
+    b.textContent="€ Euro";
+    b.title="Mostra i prezzi in Euro (conversione automatica)";
+  }
+}
+async function setCurrency(c){
+  CUR=c; LS.setItem("cur", c);
+  if(c==="EUR") await ensureRate();
+  updateCurBtn(); updateGrand(); render();
 }
 
 function buildSets(){
@@ -417,7 +466,7 @@ function drawChart(canvas, cardId){
     options:{maintainAspectRatio:false,plugins:{legend:{display:false},
       tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${YEN(c.parsed.y)}`}}},
       scales:{x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
-              y:{ticks:{color:"#8b94ad",callback:v=>"¥"+v.toLocaleString("ja-JP")},grid:{color:"#27304a"}}}}
+              y:{ticks:{color:"#8b94ad",callback:v=>YEN(v)},grid:{color:"#27304a"}}}}
   });
 }
 
@@ -436,13 +485,14 @@ function drawIndexChart(canvas, entry, normalize){
     data:{labels:days,datasets:srcs.map(src=>(
       {label:SRC_META[src].name,data:series(entry[src]),borderColor:SRC_META[src].color,spanGaps:true,tension:.25,pointRadius:3}))},
     options:{maintainAspectRatio:false,plugins:{legend:{display:false},
-      tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${normalize?c.parsed.y:("¥"+Number(c.parsed.y).toLocaleString("ja-JP"))}`}}},
+      tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${normalize?c.parsed.y:YEN(c.parsed.y)}`}}},
       scales:{x:{ticks:{color:"#8b94ad"},grid:{color:"#27304a"}},
-              y:{ticks:{color:"#8b94ad",callback:v=>normalize?v:"¥"+v.toLocaleString("ja-JP")},grid:{color:"#27304a"}}}}
+              y:{ticks:{color:"#8b94ad",callback:v=>normalize?v:YEN(v)},grid:{color:"#27304a"}}}}
   });
 }
 
 document.getElementById("globalIdxBtn").onclick=()=>openIndex("__GLOBAL__");
+document.getElementById("curBtn").onclick=()=> setCurrency(CUR==="EUR"?"JPY":"EUR");
 document.getElementById("mToggle").onclick=()=>{ idxNormalize=!idxNormalize; if(idxName) openIndex(idxName); };
 document.getElementById("search").oninput = render;
 document.getElementById("setFilter").onchange = render;
