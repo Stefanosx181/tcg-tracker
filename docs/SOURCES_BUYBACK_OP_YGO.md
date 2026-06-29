@@ -57,7 +57,27 @@ dalla fonte**: è la causa principale dei gap assurdi che si vedono sulle chase 
 3. Aspettativa realistica: CardRush resterà spesso il più alto. Va bene: il confronto serve a
    mostrare *di quanto* CardRush batte gli altri, non a trovare chi lo pareggia.
 
+## Yu-Gi-Oh — verifica (set QCCU): Yuyu-tei VA BENE, non cambiare
+
+Stesso controllo su Yu-Gi-Oh (set QCCU, 199 carte confrontate, prezzo d'acquisto):
+
+| Carta | CardRush | Yuyu-tei | Toretoku |
+|---|---:|---:|---:|
+| QCCU-JP002 Black Magician Girl | ¥150.000 | **¥170.000** | ¥81.400 |
+| QCCU-JP001 Black Magician | ¥11.000 | **¥12.000** | ¥1.500 (Ultimate!) |
+
+- **CardRush vs Yuyu-tei: ratio mediana 1.3** (media 1.6); su molte carte Yuyu-tei paga *uguale o di più*.
+  Yuyu-tei **insegue** CardRush → affidabile come seconda fonte YGO.
+- **Toretoku peggiora**: su QCCU-JP001 mostra ¥1.500 (stampa **Ultimate**), non la Quarter Century
+  Secret da ¥11-12k → introdurrebbe gli stessi mismatch multi-stampa che vogliamo evitare.
+- Perché YGO funziona e OP no: QCCU ha **una stampa per numero** → niente ambiguità. (⚠️ I set YGO
+  normali con più rarità per carta avrebbero lo stesso problema di OP: rivedere quando si aggiungono.)
+
+**Decisione**: cambiare fonte **solo per One Piece** (→ Toretoku). Per **Yu-Gi-Oh tenere Yuyu-tei**.
+Il miglioramento del matching (disambiguazione stampe) è utile a entrambi.
+
 ## Fonti
 - Toretoku One Piece: https://kaitori-toretoku.jp/onepiece , https://kaitori-toretoku.jp/buypricelist/onepiece
+- Toretoku Yu-Gi-Oh: https://kaitori-toretoku.jp/buypricelist/yugioh
 - CardRush One Piece: https://cardrush.media/onepiece/buying_prices
 - Ranking buyback OP: https://oikura.jp/magazine/tips105/ , https://article.kaitori-value.jp/c-one-piece-card-purchase-recommendation/ , https://uridoki.net/tradingcard/kiji_217634/
