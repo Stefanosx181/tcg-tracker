@@ -12,13 +12,13 @@ Avvio:
   -> apri http://127.0.0.1:5000
 
 Note:
-- Il vero POST /api/trigger ("Aggiorna ora") esiste solo sul Worker Cloudflare
-  (worker.js, secret GH_TOKEN). In locale qui risponde con un messaggio esplicito.
+- L'aggiornamento prezzi e' SOLO automatico (cron GitHub Actions): non c'e' alcun
+  trigger on-demand ne' endpoint /api/trigger (bottone rimosso).
 - Alternativa a massima fedeltà (stesso worker.js + asset): `npx wrangler dev`
   dalla root del progetto.
 """
 import os
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, send_from_directory
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # static_folder = la cartella dashboard stessa -> /data/*.json e /images/*.webp
@@ -29,13 +29,6 @@ app = Flask(__name__, static_folder=HERE, static_url_path="")
 @app.route("/")
 def index():
     return send_from_directory(HERE, "index.html")
-
-
-@app.route("/api/trigger", methods=["POST"])
-def trigger():
-    # Lo scraping si avvia solo dal Worker Cloudflare; in locale è un no-op chiaro.
-    return jsonify(ok=False,
-                   error="Disponibile solo sul sito pubblicato (Cloudflare)."), 501
 
 
 if __name__ == "__main__":

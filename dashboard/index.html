@@ -93,20 +93,6 @@
        color:var(--f-ink-3);font-variant-numeric:tabular-nums;
        transition:background var(--f-dur-fast),color var(--f-dur-fast)}
   button#curBtn .seg.on{background:var(--f-panel-2);color:var(--f-ink)}
-  button#refreshBtn{background:var(--f-seal);color:var(--f-on-seal);
-       display:inline-flex;align-items:center;gap:7px}
-  button#refreshBtn:hover:not(:disabled){background:var(--f-seal-bright)}
-  button#refreshBtn:active:not(:disabled){background:var(--f-seal-press)}
-  button#refreshBtn:disabled{opacity:.6;cursor:default}
-  button#refreshBtn .spin{display:none;width:14px;height:14px;border-radius:50%;
-       border:2px solid rgba(26,15,12,.35);border-top-color:var(--f-on-seal);animation:spin .8s linear infinite}
-  button#refreshBtn.loading .spin{display:inline-block}
-  #refreshMsg{align-self:center;font-size:12px;color:var(--f-ink-3)}
-  #refreshMsg:empty{display:none}
-  #refreshMsg.toast{position:fixed;right:20px;bottom:20px;z-index:60;
-       background:var(--f-panel-2);border:1px solid var(--f-hair);border-radius:var(--f-r);
-       padding:11px 15px;box-shadow:var(--f-lift);max-width:340px;animation:toastIn .26s var(--f-ease)}
-  #refreshMsg.toast.ok{border-color:var(--tt)} #refreshMsg.toast.err{border-color:var(--f-seal-line)}
 
   /* schede per gioco — segmented control */
   .game-tabs{display:inline-flex;gap:4px;margin-top:14px;padding:4px;
@@ -238,8 +224,6 @@
     .controls select{flex:1 1 46%}
     button#globalIdxBtn{flex:1 1 46%;margin-left:0}
     button#curBtn{flex:0 0 auto}
-    button#refreshBtn{flex:1 1 100%;justify-content:center}
-    #refreshMsg{flex-basis:100%}
     .controls button,.gtab,.idxbtn,.sheet .x{min-height:44px}
     .idxbtn{width:44px;height:44px}
     .gtab{padding:10px 18px}
@@ -259,7 +243,6 @@
     .sheet::before{content:"";display:block;width:36px;height:4px;border-radius:2px;
            background:var(--f-hair-strong);margin:0 auto 12px}
     .chart-box{height:240px}
-    #refreshMsg.toast{left:12px;right:12px;bottom:12px;max-width:none}
   }
   /* telefoni stretti: 2 colonne garantite */
   @media (max-width: 380px){
@@ -269,10 +252,8 @@
   }
 
   /* ---------- KEYFRAMES / MOTION / FOCUS / SCROLLBAR ---------- */
-  @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-  @keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
   @keyframes gridRise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   .grid{animation:gridRise var(--f-dur) var(--f-ease)}
   input:focus-visible,select:focus-visible,button:focus-visible,.gtab:focus-visible,
@@ -321,8 +302,6 @@
     <select id="setFilter"><option value="">Tutti i set</option></select>
     <button id="globalIdxBtn" title="Andamento del prezzo medio ponderato di tutti i set">Andamento</button>
     <button id="curBtn" title="Cambia valuta (conversione automatica)"><span class="seg" data-cur="JPY">¥</span><span class="seg" data-cur="EUR">€</span></button>
-    <button id="refreshBtn" title="Avvia subito lo scraping dei prezzi"><span class="spin" aria-hidden="true"></span><span class="rlabel">Aggiorna ora</span></button>
-    <span id="refreshMsg"></span>
   </div>
 </header>
 
@@ -695,25 +674,6 @@ const _er=document.getElementById("emptyReset");
 if(_er) _er.onclick=()=>{ document.getElementById("search").value="";
   document.getElementById("setFilter").value=""; render(); };
 
-// messaggio refresh come toast con auto-dismiss
-function setMsg(txt, kind){
-  const m=document.getElementById("refreshMsg");
-  m.textContent=txt; m.className = txt ? "toast"+(kind?" "+kind:"") : "";
-  clearTimeout(m._t);
-  // l'esito OK resta visibile (il bottone è disabilitato fino al reload): non auto-svanisce
-  if(txt && kind!=="ok") m._t=setTimeout(()=>{ m.className=""; m.textContent=""; }, 6000);
-}
-document.getElementById("refreshBtn").onclick = async (e)=>{
-  const btn=e.currentTarget;
-  btn.disabled=true; btn.classList.add("loading"); setMsg("Avvio in corso…");
-  try{
-    const r=await fetch("/api/trigger",{method:"POST"});
-    const j=await r.json().catch(()=>({}));
-    if(r.ok && j.ok){ setMsg("✓ Avviato — i prezzi compariranno tra ~7-8 minuti (ricarica più tardi).","ok");
-      btn.classList.remove("loading"); }
-    else{ setMsg("✗ "+(j.error||("Errore "+r.status)),"err"); btn.disabled=false; btn.classList.remove("loading"); }
-  }catch(err){ setMsg("✗ Errore di rete","err"); btn.disabled=false; btn.classList.remove("loading"); }
-};
 document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });
 
 // header con ombra al primo scroll

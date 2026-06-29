@@ -4,11 +4,10 @@
 //  - (opzionale) valida il JWT di Access cosi' richieste che AGGIRANO Access
 //    vengono respinte. Attivo solo se la variabile ENFORCE_JWT = "1"
 //    (cosi' non c'e' rischio di lock-out: si abilita/disabilita a piacere).
-//  - serve la dashboard statica (cartella dashboard/) via il binding ASSETS;
-//  - espone POST /api/trigger per avviare il workflow GitHub (secret GH_TOKEN).
+//  - serve la dashboard statica (cartella dashboard/) via il binding ASSETS.
+// NB: l'aggiornamento prezzi e' SOLO automatico (cron GitHub Actions). Niente
+// trigger on-demand: nessun endpoint /api/trigger -> niente superficie da proteggere.
 
-const REPO = "Stefanosx181/tcg-tracker";
-const WORKFLOW = "scrape.yml";
 const TEAM_DOMAIN = "tcgtracker.cloudflareaccess.com";
 const AUD = "5c0f3bdeb6f916d8deaca883176055b57df6849b5ac3c2ac84654452e188db30";
 
@@ -20,29 +19,6 @@ export default {
     if (env.ENFORCE_JWT === "1") {
       const ok = await verifyAccessJWT(request);
       if (!ok) return json({ ok: false, error: "Accesso non valido" }, 403);
-    }
-
-    if (url.pathname === "/api/trigger") {
-      if (request.method !== "POST") return json({ ok: false, error: "Usa POST" }, 405);
-      if (!env.GH_TOKEN) return json({ ok: false, error: "Token GitHub non configurato (secret GH_TOKEN)" }, 503);
-      const gh = await fetch(
-        `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${env.GH_TOKEN}`,
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "tcg-tracker-worker",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ ref: "main" }),
-        }
-      );
-      if (gh.status === 204) return json({ ok: true });
-      let detail = "";
-      try { detail = (await gh.json()).message || ""; } catch (_) {}
-      return json({ ok: false, error: `GitHub ${gh.status}: ${detail}` }, 502);
     }
 
     // La pagina e i JSON dei dati cambiano ad ogni scrape ma hanno URL fisso:

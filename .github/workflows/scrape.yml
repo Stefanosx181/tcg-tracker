@@ -1,46 +1,43 @@
 name: Aggiorna prezzi TCG (cloud)
 
-# COSA FA IN CLOUD: rinfresca i PREZZI Pokémon PER-CARTA — sia CardRush sia Hareruya —
-# in lotti per STALENESS (le carte col prezzo piu' vecchio/mai aggiornato vanno prima).
-#   Perche' funziona dal cloud: dagli IP datacenter di GitHub Actions il blocco di CardRush
-#   e' una REGOLA DI PERCORSO, non un ban d'IP — l'endpoint PER-CARTA
-#   (`/pokemon/buying_prices?model_number=...`) passa, e' solo l'endpoint-LISTA (la scansione
-#   del catalogo) a dare 403. Hareruya passa regolarmente. Quindi qui aggiorniamo i PREZZI
-#   per-carta senza mai toccare la lista.
-#   Cosa NON si fa qui (richiede la lista, 403 in cloud): la SCOPERTA di carte/set NUOVI e il
-#   refresh OP/YGO -> job separato `harvest_local.bat` dal PC (vedi DEPLOY.md), a bassa frequenza.
-#
-#   PIU' TRIGGER nella stessa notte: i lotti si dividono il catalogo per staleness senza
-#   sovrapporsi. Jitter + gap tra set = traffico credibile.
+# Aggiornamento AUTOMATICO una volta a SETTIMANA: in UNA notte copre l'INTERO catalogo
+# Pokémon (CardRush + Hareruya, per-carta). Per NON stressare Hareruya il giro e'
+# SPEZZATO in 4 finestre scaglionate nella notte (lotti per STALENESS): ogni trigger
+# prende le ~2.600 carte col prezzo piu' VECCHIO per fonte -> 4 x 2.600 = 10.400 >= 10.191,
+# cioe' l'intero catalogo, ma distribuito su ~9h invece che in un'unica raffica.
+#   Funziona dal cloud perche' CardRush PER-CARTA (forma SPA) e Hareruya passano dagli IP
+#   di GitHub; la LISTA (scoperta carte nuove) resta a parte (discovery.yml, via proxy/PC).
+#   Pacing credibile: --sleep 1 + --jitter + --set-gap. Repo PUBBLICO = minuti illimitati.
+#   Aggiornamento SOLO automatico: nessun bottone/endpoint on-demand.
 on:
-  # 1 trigger/notte con lotto contenuto: sta nei 2.000 min/mese gratis del repo PRIVATO
-  # (full catalogo ~10k coperto in ~10 notti per fonte; i buyback non cambiano a ore).
-  # Per copertura PIENA ogni notte -> repo PUBBLICO (minuti illimitati): alza batch e
-  # rimetti piu' trigger.
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "0 22 * * 1"    # lunedì 22:00 UTC  (1a finestra)
+    - cron: "0 1 * * 2"     # martedì 01:00 UTC (2a)
+    - cron: "0 4 * * 2"     # martedì 04:00 UTC (3a)
+    - cron: "0 7 * * 2"     # martedì 07:00 UTC (4a)
   workflow_dispatch:
     inputs:
       batch:
-        description: "Carte per lotto (vale sia per CardRush sia per Hareruya)"
-        default: "900"
+        description: "Carte per lotto, per fonte"
+        default: "2600"
 
 # serve per ricommittare il DB e i JSON aggiornati nel repo
 permissions:
   contents: write
 
-# evita run sovrapposti: i trigger notturni si mettono in coda, non si annullano
+# UN solo gruppo: le 4 finestre si ACCODANO (mai in parallelo). Il .db e' binario:
+# serializzare evita conflitti di push tra run.
 concurrency:
   group: scrape
   cancel-in-progress: false
 
 env:
-  BATCH: ${{ github.event.inputs.batch || '900' }}
+  BATCH: ${{ github.event.inputs.batch || '2600' }}
 
 jobs:
   prezzi:
     runs-on: ubuntu-latest
-    timeout-minutes: 350          # sotto il limite duro di 360' per job
+    timeout-minutes: 300          # < cap duro 360'; un lotto reale gira ~2.5-3h
     steps:
       - name: Checkout (include lo storico committato)
         uses: actions/checkout@v4
@@ -57,15 +54,15 @@ jobs:
       - name: Crea il DB se manca (storico preservato se gia' presente)
         run: python src/init_db.py
 
-      # CardRush PER-CARTA (usa tcg_card.cardrush_url ?model_number=..., NON la lista 403).
-      # Se CardRush bloccasse anche il per-carta (0 prezzi su >=30 tentativi), run.py esce
-      # con errore e il job fallisce -> notifica (segnale di rottura reale).
+      # CardRush PER-CARTA (forma SPA, NON la lista 403). Se bloccasse anche il per-carta
+      # (errori rete su >=50% del lotto) run.py esce con errore -> notifica.
       - name: Lotto CardRush per-carta per staleness
         run: >
           python src/run.py --game pokemon --only cardrush
           --batch ${{ env.BATCH }} --sleep 1.0 --jitter 0.6 --set-gap 2
 
-      # Hareruya per-carta, per staleness (indipendente: sceglie le sue carte piu' stantie).
+      # Hareruya per-carta, per staleness. Spezzato su 4 finestre/notte (vedi schedule)
+      # per non stressarlo: ogni run ne tocca ~2.600, le piu' stantie.
       - name: Lotto Hareruya per-carta per staleness
         run: >
           python src/run.py --game pokemon --only hareruya
