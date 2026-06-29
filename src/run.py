@@ -78,16 +78,19 @@ def main():
     # paginata da' tutte le singole con prezzo+immagine. Sostituisce le fetch
     # per-carta su CardRush (Hareruya resta per-carta, shardato con --batch).
     if args.harvest_pokemon:
-        import requests
         images_dir = os.path.join(HERE, "..", "dashboard", "images") if args.images else None
         print("Harvest CardRush Pokemon (catalogo + prezzi)...")
-        # NB: l'endpoint-LISTA di CardRush blocca gli IP datacenter (es. GitHub Actions, 403):
-        # da li' l'harvest non funziona, va eseguito dal PC. Qui lo gestiamo con grazia:
-        # niente traceback, messaggio chiaro, uscita pulita (cosi' un eventuale uso in
-        # cloud/blip di rete non rompe nulla).
+        # NB: l'endpoint-LISTA di CardRush blocca gli IP datacenter (GitHub Actions, 403):
+        # da li' l'harvest funziona solo via PROXY residenziale (env SCRAPER_PROXY) o dal PC.
+        # Gestione con grazia: niente traceback; in CI esce 2 per notificare (vedi sotto).
+        _proxy = os.environ.get("SCRAPER_PROXY")
+        hclient = sc.HttpClient(rate_limit=args.sleep,
+                                proxies={"http": _proxy, "https": _proxy} if _proxy else None)
+        if _proxy:
+            print("  (uso SCRAPER_PROXY per l'endpoint-lista)")
         try:
             stats = bc.harvest_pokemon_cardrush(
-                conn, client=client, images_dir=images_dir,
+                conn, client=hclient, images_dir=images_dir,
                 progress=lambda p, last: (p % 10 == 0 or p == last)
                 and print(f"  pagina {p}/{last}"))
         except (requests.RequestException, sc.LayoutError) as e:

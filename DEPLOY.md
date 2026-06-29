@@ -3,32 +3,38 @@
 Architettura:
 
 ```
-PC (scripts/harvest_local.bat, quando vuoi / pianificato)
-   └─ harvest CATALOGO + prezzi CardRush (lista CardRush, ~120 pagine)
-        └─ commit + push  ─────────────────────────────────┐
-                                                            │
-GitHub Actions (cron NOTTURNO, 4 trigger)                  │
-   └─ prezzi HARERUYA per staleness (lotti)                 │
-        └─ commit + push  ──────────────────────────────────┤
-                                                            ▼
+GitHub Actions — cron NOTTURNO (scrape.yml)            [AUTOMATICO, niente PC]
+   └─ PREZZI per-carta CardRush + Hareruya, per staleness (lotti)
+        └─ commit + push ─────────────────────────────────┐
+                                                           │
+SCOPERTA carte nuove (rara, ~quando esce un set):          │
+   • via PROXY: discovery.yml (dispatch) con secret SCRAPER_PROXY   [niente PC]
+   • oppure dal PC: scripts/harvest_local.bat                       [serve PC acceso]
+        └─ harvest lista CardRush -> commit + push ─────────┤
+                                                           ▼
    tcg_tracker.db + dashboard/data/*.json  ──► Cloudflare Pages ridistribuisce
                                                   └─ URL nascosto (solo chi ha il link)
 ```
 
-⚠️ **Perche' lo scraping e' diviso PC/cloud:** dagli IP datacenter di GitHub Actions,
-l'endpoint-LISTA di CardRush (l'harvest del catalogo) e le fonti One Piece/Yu-Gi-Oh
-(Yuyu-tei, Toretoku) rispondono **403 Forbidden**. **Hareruya** invece risponde
-regolarmente. Quindi:
-- **Cloud (GitHub Actions)** = solo prezzi **Hareruya** dei Pokémon, in lotti notturni
-  per staleria (non fallisce piu' per colpa delle fonti bloccate).
-- **PC** = **catalogo + prezzi CardRush + immagini**, con `scripts/harvest_local.bat`
-  (o `py src/run.py --harvest-pokemon`), che pusha e fa ridistribuire Cloudflare.
+⚠️ **Perche' i PREZZI girano in cloud ma la SCOPERTA no:** dagli IP datacenter di GitHub
+Actions, CardRush applica una regola di **forma della richiesta**, non un ban d'IP:
+- la richiesta **PER-CARTA** (`?model_number=...`, forma completa della SPA) **passa**
+  → i prezzi CardRush+Hareruya si rinfrescano **in cloud, automaticamente, senza PC** (verificato: 249/250);
+- la **LISTA** non filtrata (`model_number` vuoto, "dammi tutto") da' **403 anche in forma
+  completa** → la SCOPERTA di carte/set nuovi richiede un **proxy residenziale**
+  (`SCRAPER_PROXY`, vedi sotto) oppure il **PC** (`scripts/harvest_local.bat`). È rara
+  (solo quando esce un set nuovo), quindi non e' un collo di bottiglia quotidiano.
+- Le fonti One Piece/Yu-Gi-Oh (Yuyu-tei/Toretoku) danno 403 anche per-carta → servono comunque proxy/PC.
 
-Suggerimento: lancia l'harvest dal PC **di giorno** (quando il cron notturno non gira)
-per evitare commit sovrapposti sul DB. Lo script fa `git pull --rebase` prima del push.
+**Budget minuti (repo privato = 2.000 min/mese gratis):** il cron prezzi e' tarato su 1 trigger/notte,
+lotto 900 → copre le ~10k carte in ~10 notti per fonte (i buyback non cambiano a ore). Per copertura
+**piena ogni notte** conviene rendere il **repo PUBBLICO** (minuti Actions illimitati): poi si alza
+`batch` e si rimettono piu' trigger.
 
-Tutto gratis: GitHub Actions (repo privato = 2000 min/mese), Cloudflare Pages
-(hosting statico illimitato).
+**Scoperta via proxy (niente PC):** crea un proxy residenziale pay-as-you-go (es. DataImpulse ~1$/GB;
+l'harvest mensile sono pochi MB = centesimi), salvalo come **GitHub Secret `SCRAPER_PROXY`**
+(`http://user:pass@host:port`) e lancia il workflow **"Scoperta catalogo"** (Actions → Run workflow).
+Tutto gratis: Cloudflare Pages (hosting statico illimitato).
 
 ---
 

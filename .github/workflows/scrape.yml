@@ -13,16 +13,17 @@ name: Aggiorna prezzi TCG (cloud)
 #   PIU' TRIGGER nella stessa notte: i lotti si dividono il catalogo per staleness senza
 #   sovrapporsi. Jitter + gap tra set = traffico credibile.
 on:
+  # 1 trigger/notte con lotto contenuto: sta nei 2.000 min/mese gratis del repo PRIVATO
+  # (full catalogo ~10k coperto in ~10 notti per fonte; i buyback non cambiano a ore).
+  # Per copertura PIENA ogni notte -> repo PUBBLICO (minuti illimitati): alza batch e
+  # rimetti piu' trigger.
   schedule:
-    - cron: "0 22 * * *"
-    - cron: "30 23 * * *"
-    - cron: "0 1 * * *"
-    - cron: "30 2 * * *"
+    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       batch:
         description: "Carte per lotto (vale sia per CardRush sia per Hareruya)"
-        default: "2800"
+        default: "900"
 
 # serve per ricommittare il DB e i JSON aggiornati nel repo
 permissions:
@@ -34,7 +35,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BATCH: ${{ github.event.inputs.batch || '2800' }}
+  BATCH: ${{ github.event.inputs.batch || '900' }}
 
 jobs:
   prezzi:
@@ -62,13 +63,13 @@ jobs:
       - name: Lotto CardRush per-carta per staleness
         run: >
           python src/run.py --game pokemon --only cardrush
-          --batch ${{ env.BATCH }} --sleep 1.0 --jitter 1.5 --set-gap 8
+          --batch ${{ env.BATCH }} --sleep 1.0 --jitter 0.6 --set-gap 2
 
       # Hareruya per-carta, per staleness (indipendente: sceglie le sue carte piu' stantie).
       - name: Lotto Hareruya per-carta per staleness
         run: >
           python src/run.py --game pokemon --only hareruya
-          --batch ${{ env.BATCH }} --sleep 1.0 --jitter 1.5 --set-gap 8
+          --batch ${{ env.BATCH }} --sleep 1.0 --jitter 0.6 --set-gap 2
 
       - name: Commit dei dati aggiornati
         run: |

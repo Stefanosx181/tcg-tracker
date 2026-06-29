@@ -66,7 +66,8 @@ class HttpClient:
     _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
     def __init__(self, timeout=TIMEOUT, retries=RETRIES, backoff=BACKOFF,
-                 rate_limit=RATE_LIMIT, headers=None, session=None, sleep=time.sleep):
+                 rate_limit=RATE_LIMIT, headers=None, session=None, sleep=time.sleep,
+                 proxies=None):
         self.timeout = timeout
         self.retries = max(1, retries)
         self.backoff = backoff
@@ -75,6 +76,9 @@ class HttpClient:
         self.session = session or requests.Session()
         self._sleep = sleep            # iniettabile nei test (niente attese vere)
         self._primed = False           # la prima richiesta non aspetta il rate-limit
+        # proxy opzionale (per le chiamate bloccate da datacenter: lista CardRush,
+        # Yuyu-tei/Toretoku). Formato requests: {"http": url, "https": url}. None = diretto.
+        self.proxies = proxies
 
     def get(self, url):
         """Ritorna una requests.Response con status 2xx, oppure solleva
@@ -88,7 +92,12 @@ class HttpClient:
             if attempt:
                 self._sleep(self.backoff * (2 ** (attempt - 1)))
             try:
-                r = self.session.get(url, headers=self.headers, timeout=self.timeout)
+                # proxies passato SOLO se impostato: cosi' le sessioni finte dei test
+                # (get senza kwarg proxies) e le chiamate dirette restano invariate.
+                kw = {"headers": self.headers, "timeout": self.timeout}
+                if self.proxies:
+                    kw["proxies"] = self.proxies
+                r = self.session.get(url, **kw)
             except requests.RequestException as e:
                 last_exc = e
                 continue

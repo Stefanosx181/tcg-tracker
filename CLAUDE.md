@@ -45,8 +45,9 @@ ufficiale che loro si aspettano di vedere.
 
 ```
 CATALOGO Pokémon = lista buyback CardRush (HARVEST paginato), NON piu' l'Excel.
-  ⚠️ Gira SOLO dal PC (`scripts/harvest_local.bat` / `run.py --harvest-pokemon`): la lista
-  CardRush risponde 403 agli IP datacenter di GitHub Actions. Da' tutte le singole + prezzi CR + immagini.
+  ⚠️ SOLO per la SCOPERTA di carte nuove (la lista non filtrata da' 403 agli IP datacenter, anche
+  in forma SPA): gira via PROXY (`discovery.yml` + secret `SCRAPER_PROXY`) o dal PC
+  (`scripts/harvest_local.bat`). I PREZZI invece NON dipendono dalla lista (vedi sotto).
 CATALOGO OP/YGO  = pagina-set Yuyu-tei (build_catalog.harvest, set per set)
                          ↓
    tcg_tracker.db (SQLite)
@@ -60,8 +61,10 @@ CATALOGO OP/YGO  = pagina-set Yuyu-tei (build_catalog.harvest, set per set)
    → src/database.py  (accesso DB, save_price con carry-forward, fetch_cards_stale, export_web)
    → dashboard/data/*.json (buylist.json, history.json, setindex.json, movers.json)
    → dashboard/ (statica, Cloudflare Pages)
-GitHub Actions (.github/workflows/scrape.yml, cron NOTTURNO 4 trigger) → SOLO prezzi HARERUYA
-   per staleness (CardRush-lista/Yuyu-tei/Toretoku danno 403 agli IP cloud; Hareruya no) → commit DB+JSON
+GitHub Actions (scrape.yml, cron NOTTURNO) → PREZZI per-carta CardRush + Hareruya per staleness,
+   in CLOUD senza PC (CardRush per-carta in forma SPA passa il 403; la LISTA no). 1 trigger/notte,
+   lotto 900 = entro i 2000 min/mese del repo privato (full ~10 notti; pubblico = full ogni notte).
+   discovery.yml (dispatch, secret SCRAPER_PROXY) = scoperta carte nuove via proxy. → commit DB+JSON
 Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 ```
 

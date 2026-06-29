@@ -1,13 +1,13 @@
 name: Scoperta catalogo Pokémon (harvest CardRush)
 
-# Scopre carte/set NUOVI e rinfresca catalogo + prezzi CardRush via l'endpoint-LISTA
-# di CardRush, usato nella forma COMPLETA della SPA (vedi scrapers.pokemon_cardrush_url):
-# stessa forma che sblocca il per-carta dal cloud. Operazione RARA (mensile) e separata
-# dal job prezzi notturno, cosi' un eventuale 403 sulla lista non blocca il refresh prezzi.
-# CI=true -> se la lista tornasse a dare 403, il job FALLISCE e arriva la notifica.
+# Scopre carte/set NUOVI e rinfresca catalogo + prezzi CardRush via l'endpoint-LISTA.
+# ATTENZIONE: la lista CardRush (model_number vuoto) da' 403 dagli IP datacenter di GitHub
+# ANCHE in forma SPA completa -> da CI funziona SOLO via PROXY residenziale (secret
+# SCRAPER_PROXY). Per questo il trigger e' SOLO MANUALE (workflow_dispatch): senza proxy il
+# job uscirebbe 2 (CI). Quando imposti SCRAPER_PROXY puoi rimettere un cron mensile.
+# In alternativa la scoperta si fa dal PC (scripts/harvest_local.bat). I PREZZI per-carta
+# (job notturno scrape.yml) NON dipendono da questo: girano in cloud senza proxy.
 on:
-  schedule:
-    - cron: "0 3 1 * *"     # il 1o di ogni mese, 03:00 UTC
   workflow_dispatch:
 
 permissions:
@@ -20,6 +20,7 @@ concurrency:
 
 env:
   CI: "true"
+  SCRAPER_PROXY: ${{ secrets.SCRAPER_PROXY }}
 
 jobs:
   harvest:
