@@ -3,17 +3,32 @@
 Architettura:
 
 ```
-GitHub Actions (cron settimanale)
-   └─ scraping CardRush + Hareruya
-        └─ append nello storico (tcg_tracker.db, mai cancellato)
-             └─ export dashboard/data/*.json
-                  └─ commit nel repo PRIVATO
-                       └─ Cloudflare Pages ridistribuisce la pagina
-                            └─ URL nascosto, visibile solo a chi ha il link
+PC (scripts/harvest_local.bat, quando vuoi / pianificato)
+   └─ harvest CATALOGO + prezzi CardRush (lista CardRush, ~120 pagine)
+        └─ commit + push  ─────────────────────────────────┐
+                                                            │
+GitHub Actions (cron NOTTURNO, 4 trigger)                  │
+   └─ prezzi HARERUYA per staleness (lotti)                 │
+        └─ commit + push  ──────────────────────────────────┤
+                                                            ▼
+   tcg_tracker.db + dashboard/data/*.json  ──► Cloudflare Pages ridistribuisce
+                                                  └─ URL nascosto (solo chi ha il link)
 ```
 
-Tutto gratis: GitHub Actions (repo privato = 2000 min/mese, ne servono ~8),
-Cloudflare Pages (hosting statico illimitato).
+⚠️ **Perche' lo scraping e' diviso PC/cloud:** dagli IP datacenter di GitHub Actions,
+l'endpoint-LISTA di CardRush (l'harvest del catalogo) e le fonti One Piece/Yu-Gi-Oh
+(Yuyu-tei, Toretoku) rispondono **403 Forbidden**. **Hareruya** invece risponde
+regolarmente. Quindi:
+- **Cloud (GitHub Actions)** = solo prezzi **Hareruya** dei Pokémon, in lotti notturni
+  per staleria (non fallisce piu' per colpa delle fonti bloccate).
+- **PC** = **catalogo + prezzi CardRush + immagini**, con `scripts/harvest_local.bat`
+  (o `py src/run.py --harvest-pokemon`), che pusha e fa ridistribuire Cloudflare.
+
+Suggerimento: lancia l'harvest dal PC **di giorno** (quando il cron notturno non gira)
+per evitare commit sovrapposti sul DB. Lo script fa `git pull --rebase` prima del push.
+
+Tutto gratis: GitHub Actions (repo privato = 2000 min/mese), Cloudflare Pages
+(hosting statico illimitato).
 
 ---
 

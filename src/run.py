@@ -77,12 +77,23 @@ def main():
     # paginata da' tutte le singole con prezzo+immagine. Sostituisce le fetch
     # per-carta su CardRush (Hareruya resta per-carta, shardato con --batch).
     if args.harvest_pokemon:
+        import requests
         images_dir = os.path.join(HERE, "..", "dashboard", "images") if args.images else None
         print("Harvest CardRush Pokemon (catalogo + prezzi)...")
-        stats = bc.harvest_pokemon_cardrush(
-            conn, client=client, images_dir=images_dir,
-            progress=lambda p, last: (p % 10 == 0 or p == last)
-            and print(f"  pagina {p}/{last}"))
+        # NB: l'endpoint-LISTA di CardRush blocca gli IP datacenter (es. GitHub Actions, 403):
+        # da li' l'harvest non funziona, va eseguito dal PC. Qui lo gestiamo con grazia:
+        # niente traceback, messaggio chiaro, uscita pulita (cosi' un eventuale uso in
+        # cloud/blip di rete non rompe nulla).
+        try:
+            stats = bc.harvest_pokemon_cardrush(
+                conn, client=client, images_dir=images_dir,
+                progress=lambda p, last: (p % 10 == 0 or p == last)
+                and print(f"  pagina {p}/{last}"))
+        except (requests.RequestException, sc.LayoutError) as e:
+            conn.close()
+            print(f"\nHarvest SALTATO: la lista buyback CardRush non e' raggiungibile da qui ({e}).")
+            print("Probabile blocco IP datacenter: eseguilo dal PC -> py src/run.py --harvest-pokemon")
+            return
         n = db.export_web(conn, DATA_DIR)
         db.export_buylist_json(conn, LEGACY_JSON)
         conn.close()

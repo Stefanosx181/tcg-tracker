@@ -1,33 +1,30 @@
-name: Aggiorna prezzi TCG
+name: Aggiorna prezzi TCG (Hareruya, cloud)
 
-# Quando gira (catalogo Pokemon COMPLETO da CardRush + Hareruya per-carta):
-#   - schedule: PIU' TRIGGER nella STESSA notte, scaglionati su piu' ore.
-#       * Il PRIMO trigger (22:00 UTC) fa l'harvest CardRush completo (catalogo +
-#         prezzi CR di TUTTE le singole, una scansione paginata) + il refresh di
-#         One Piece/Yu-Gi-Oh + il primo lotto Hareruya.
-#       * I trigger successivi fanno SOLO un lotto Hareruya, scelto per STALENESS
-#         (carte col prezzo Hareruya piu' vecchio/mai): i lotti si dividono il
-#         catalogo SENZA sovrapporsi e in una notte lo coprono tutto.
-#     Traffico spalmato su piu' ore + jitter/gap tra set = piu' credibile e sotto
-#     il limite di 6h per job.
-#   - workflow_dispatch: "Run workflow" a mano (input: dimensione lotto, harvest si/no).
+# COSA FA IN CLOUD: solo i prezzi HARERUYA dei Pokémon, in lotti per STALENESS.
+#   Perche': dagli IP datacenter di GitHub Actions, l'endpoint-LISTA di CardRush
+#   (l'harvest del catalogo) e le fonti OP/YGO (Yuyu-tei, Toretoku) rispondono
+#   403 Forbidden. Hareruya invece risponde regolarmente. Quindi:
+#     - HARERUYA per-carta  -> gira QUI in cloud (funziona);
+#     - CATALOGO + prezzi CardRush + immagini -> si fanno dal PC con
+#       `python src/run.py --harvest-pokemon` (vedi DEPLOY.md / scripts/harvest_local.bat),
+#       perche' la lista CardRush blocca gli IP cloud.
+#
+#   PIU' TRIGGER nella stessa notte (4 x 2800 = 11.200 >= ~10k carte): i lotti si
+#   dividono il catalogo per staleness (carte col prezzo Hareruya piu' vecchio/mai)
+#   senza sovrapporsi, coprendolo in una notte. Jitter + gap tra set = traffico credibile.
 on:
   schedule:
-    - cron: "0 22 * * *"     # 1o trigger: harvest CR completo + OP/YGO + lotto HR
-    - cron: "30 23 * * *"    # lotto Hareruya (staleness)
-    - cron: "0 1 * * *"      # lotto Hareruya (staleness)
-    - cron: "30 2 * * *"     # lotto Hareruya (staleness)
+    - cron: "0 22 * * *"
+    - cron: "30 23 * * *"
+    - cron: "0 1 * * *"
+    - cron: "30 2 * * *"
   workflow_dispatch:
     inputs:
       batch:
         description: "Carte Hareruya per lotto"
         default: "2800"
-      harvest:
-        description: "Esegui anche l'harvest CardRush completo + OP/YGO"
-        type: boolean
-        default: true
 
-# serve per poter ricommittare il DB e i JSON aggiornati nel repo
+# serve per ricommittare il DB e i JSON aggiornati nel repo
 permissions:
   contents: write
 
@@ -37,13 +34,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # 4 trigger notturni x 2800 = 11.200 >= catalogo (~10.2k) -> coperto in una notte
   HARERUYA_BATCH: ${{ github.event.inputs.batch || '2800' }}
-  # true sul PRIMO trigger notturno (22:00) o su dispatch manuale con harvest=true
-  RUN_HARVEST: ${{ github.event.schedule == '0 22 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.harvest == 'true') }}
 
 jobs:
-  scrape:
+  hareruya:
     runs-on: ubuntu-latest
     timeout-minutes: 350          # sotto il limite duro di 360' per job
     steps:
@@ -62,22 +56,10 @@ jobs:
       - name: Crea il DB se manca (storico preservato se gia' presente)
         run: python src/init_db.py
 
-      - name: Harvest CardRush Pokemon (catalogo + prezzi CR di TUTTE le singole)
-        if: env.RUN_HARVEST == 'true'
-        run: python src/run.py --harvest-pokemon
-
-      # NON deve far fallire il job: le fonti PREZZI di OP/YGO (Toretoku, Yuyu-tei)
-      # bloccano gli IP di GitHub Actions (403 Forbidden) -> 0 prezzi -> exit 2.
-      # I prezzi Pokémon (CardRush+Hareruya) funzionano dal cloud; OP/YGO si
-      # rinfrescano semmai dal PC (DEPLOY.md "Piano B"). continue-on-error = il job
-      # resta verde sui Pokémon anche se OP/YGO non si aggiornano dal cloud.
-      - name: Refresh prezzi One Piece / Yu-Gi-Oh (best-effort, fonti spesso bloccate in CI)
-        if: env.RUN_HARVEST == 'true'
-        continue-on-error: true
-        run: |
-          python src/run.py --game onepiece --sleep 1.0
-          python src/run.py --game yugioh   --sleep 1.0
-
+      # Lotto Hareruya per staleness. Il CATALOGO (quali carte esistono) e i prezzi
+      # CardRush arrivano dal PC: qui aggiorniamo solo Hareruya sulle carte gia' nel DB.
+      # Se Hareruya dovesse bloccare (0 prezzi su un lotto ampio), run.py esce con
+      # errore -> il job fallisce e arriva la notifica (segnale di rottura reale).
       - name: Lotto Hareruya per staleness (jitter + gap tra set = credibile)
         run: >
           python src/run.py --game pokemon --only hareruya
@@ -92,6 +74,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "Nessuna variazione da committare."
           else
-            git commit -m "chore: aggiornamento prezzi $(date -u +%Y-%m-%dT%H:%MZ)"
+            git commit -m "chore: prezzi Hareruya $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           fi

@@ -44,8 +44,9 @@ ufficiale che loro si aspettano di vedere.
 ## Architettura e flusso dati
 
 ```
-CATALOGO Pokémon = lista buyback CardRush (HARVEST paginato), NON piu' l'Excel:
-  src/build_catalog.harvest_pokemon_cardrush → tutte le singole + prezzi CR + immagini
+CATALOGO Pokémon = lista buyback CardRush (HARVEST paginato), NON piu' l'Excel.
+  ⚠️ Gira SOLO dal PC (`scripts/harvest_local.bat` / `run.py --harvest-pokemon`): la lista
+  CardRush risponde 403 agli IP datacenter di GitHub Actions. Da' tutte le singole + prezzi CR + immagini.
 CATALOGO OP/YGO  = pagina-set Yuyu-tei (build_catalog.harvest, set per set)
                          ↓
    tcg_tracker.db (SQLite)
@@ -59,8 +60,8 @@ CATALOGO OP/YGO  = pagina-set Yuyu-tei (build_catalog.harvest, set per set)
    → src/database.py  (accesso DB, save_price con carry-forward, fetch_cards_stale, export_web)
    → dashboard/data/*.json (buylist.json, history.json, setindex.json, movers.json)
    → dashboard/ (statica, Cloudflare Pages)
-GitHub Actions (.github/workflows/scrape.yml, cron NOTTURNO multi-trigger: 1o trigger = harvest
-   CR completo + OP/YGO; trigger seguenti = lotti Hareruya per staleness) → commit DB+JSON
+GitHub Actions (.github/workflows/scrape.yml, cron NOTTURNO 4 trigger) → SOLO prezzi HARERUYA
+   per staleness (CardRush-lista/Yuyu-tei/Toretoku danno 403 agli IP cloud; Hareruya no) → commit DB+JSON
 Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 ```
 
