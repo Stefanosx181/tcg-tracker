@@ -1,17 +1,17 @@
-name: Aggiorna prezzi TCG (Hareruya, cloud)
+name: Aggiorna prezzi TCG (cloud)
 
-# COSA FA IN CLOUD: solo i prezzi HARERUYA dei Pokémon, in lotti per STALENESS.
-#   Perche': dagli IP datacenter di GitHub Actions, l'endpoint-LISTA di CardRush
-#   (l'harvest del catalogo) e le fonti OP/YGO (Yuyu-tei, Toretoku) rispondono
-#   403 Forbidden. Hareruya invece risponde regolarmente. Quindi:
-#     - HARERUYA per-carta  -> gira QUI in cloud (funziona);
-#     - CATALOGO + prezzi CardRush + immagini -> si fanno dal PC con
-#       `python src/run.py --harvest-pokemon` (vedi DEPLOY.md / scripts/harvest_local.bat),
-#       perche' la lista CardRush blocca gli IP cloud.
+# COSA FA IN CLOUD: rinfresca i PREZZI Pokémon PER-CARTA — sia CardRush sia Hareruya —
+# in lotti per STALENESS (le carte col prezzo piu' vecchio/mai aggiornato vanno prima).
+#   Perche' funziona dal cloud: dagli IP datacenter di GitHub Actions il blocco di CardRush
+#   e' una REGOLA DI PERCORSO, non un ban d'IP — l'endpoint PER-CARTA
+#   (`/pokemon/buying_prices?model_number=...`) passa, e' solo l'endpoint-LISTA (la scansione
+#   del catalogo) a dare 403. Hareruya passa regolarmente. Quindi qui aggiorniamo i PREZZI
+#   per-carta senza mai toccare la lista.
+#   Cosa NON si fa qui (richiede la lista, 403 in cloud): la SCOPERTA di carte/set NUOVI e il
+#   refresh OP/YGO -> job separato `harvest_local.bat` dal PC (vedi DEPLOY.md), a bassa frequenza.
 #
-#   PIU' TRIGGER nella stessa notte (4 x 2800 = 11.200 >= ~10k carte): i lotti si
-#   dividono il catalogo per staleness (carte col prezzo Hareruya piu' vecchio/mai)
-#   senza sovrapporsi, coprendolo in una notte. Jitter + gap tra set = traffico credibile.
+#   PIU' TRIGGER nella stessa notte: i lotti si dividono il catalogo per staleness senza
+#   sovrapporsi. Jitter + gap tra set = traffico credibile.
 on:
   schedule:
     - cron: "0 22 * * *"
@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       batch:
-        description: "Carte Hareruya per lotto"
+        description: "Carte per lotto (vale sia per CardRush sia per Hareruya)"
         default: "2800"
 
 # serve per ricommittare il DB e i JSON aggiornati nel repo
@@ -34,10 +34,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  HARERUYA_BATCH: ${{ github.event.inputs.batch || '2800' }}
+  BATCH: ${{ github.event.inputs.batch || '2800' }}
 
 jobs:
-  hareruya:
+  prezzi:
     runs-on: ubuntu-latest
     timeout-minutes: 350          # sotto il limite duro di 360' per job
     steps:
@@ -56,14 +56,19 @@ jobs:
       - name: Crea il DB se manca (storico preservato se gia' presente)
         run: python src/init_db.py
 
-      # Lotto Hareruya per staleness. Il CATALOGO (quali carte esistono) e i prezzi
-      # CardRush arrivano dal PC: qui aggiorniamo solo Hareruya sulle carte gia' nel DB.
-      # Se Hareruya dovesse bloccare (0 prezzi su un lotto ampio), run.py esce con
-      # errore -> il job fallisce e arriva la notifica (segnale di rottura reale).
-      - name: Lotto Hareruya per staleness (jitter + gap tra set = credibile)
+      # CardRush PER-CARTA (usa tcg_card.cardrush_url ?model_number=..., NON la lista 403).
+      # Se CardRush bloccasse anche il per-carta (0 prezzi su >=30 tentativi), run.py esce
+      # con errore e il job fallisce -> notifica (segnale di rottura reale).
+      - name: Lotto CardRush per-carta per staleness
+        run: >
+          python src/run.py --game pokemon --only cardrush
+          --batch ${{ env.BATCH }} --sleep 1.0 --jitter 1.5 --set-gap 8
+
+      # Hareruya per-carta, per staleness (indipendente: sceglie le sue carte piu' stantie).
+      - name: Lotto Hareruya per-carta per staleness
         run: >
           python src/run.py --game pokemon --only hareruya
-          --batch ${{ env.HARERUYA_BATCH }} --sleep 1.0 --jitter 1.5 --set-gap 8
+          --batch ${{ env.BATCH }} --sleep 1.0 --jitter 1.5 --set-gap 8
 
       - name: Commit dei dati aggiornati
         run: |
@@ -74,6 +79,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "Nessuna variazione da committare."
           else
-            git commit -m "chore: prezzi Hareruya $(date -u +%Y-%m-%dT%H:%MZ)"
+            git commit -m "chore: prezzi CR+HR $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           fi
