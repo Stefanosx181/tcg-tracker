@@ -171,6 +171,77 @@ def test_build_query_empty_when_no_number():
     assert a.scrape(card, _BoomClient()) is None
 
 
+# --- FIX collisione catalogo: numero PIENO dal campo canonico `number` --------
+def _hareruya_html(rows):
+    """Costruisce una pagina-risultati hare2buy minima da [(name, price_text), ...]."""
+    cells = "".join(
+        f'<div class="list_item_cell"><span class="goods_name">{n}</span>'
+        f'<span class="selling_price">{p}</span></div>'
+        for n, p in rows
+    )
+    return f'<div class="itemlist">{cells}</div>'
+
+
+# carta di CATALOGO (harvested): niente card_code legacy, solo numero canonico
+CATALOG_CARD = {
+    "id": 58, "game_code": "pokemon", "pack_code": "SV2a",
+    "card_code": None, "model_number": "058", "number": "058/165",
+    "full_name": "ガーディ",
+}
+
+
+def test_hareruya_build_query_uses_canonical_number_for_catalog():
+    # prima del fix: full=None -> cercava solo "058" e prendeva il max sbagliato.
+    a = ad.HareruyaAdapter()
+    q = a.build_query(CATALOG_CARD)
+    assert q.match["full"] == "058/165"
+    assert "058/165" in q.url
+
+
+def test_hareruya_full_number_match_rejects_cross_set_collision():
+    # ricerca '058' su hareruya restituisce piu' carte con numeratore 058:
+    # solo 058/165[SV2a] e' la nostra; 058/100[XY] (cara) NON deve essere agganciata.
+    a = ad.HareruyaAdapter()
+    q = a.build_query(CATALOG_CARD)
+    html = _hareruya_html([
+        ("ガーディ(C){炎}〈058/165〉[SV2a][EX1]", "10円"),
+        ("べつのカード(SR)〈058/100〉[XY][EX2]", "230,000円"),
+    ])
+    offers = a.parse(html, q)
+    assert [o.price for o in offers] == [10]      # niente 230000
+    assert a.select(offers, q).price == 10
+
+
+def test_hareruya_ambiguity_guard_drops_divergent_prices():
+    # due item con LO STESSO numero pieno e STESSO nome ma prezzi assurdamente
+    # divergenti (collisione non distinguibile) -> nessun prezzo, non il max.
+    a = ad.HareruyaAdapter()
+    q = a.build_query(CATALOG_CARD)
+    html = _hareruya_html([
+        ("ガーディ(C)〈058/165〉[SV2a]", "10円"),
+        ("ガーディ(SR)〈058/165〉[SV2a]", "90,000円"),
+    ])
+    assert a.parse(html, q) == []
+
+
+def test_hareruya_name_disambiguates_same_number_different_card():
+    # caso REALE 013/023: stesso numero per DUE carte diverse (Quick Ball vs
+    # Evolution Incense) in sotto-set ([SA-gM]/[SA-frM], tag inaffidabili).
+    # Il nome JP discrimina -> deve prendere la Quick Ball (2500), non il max.
+    a = ad.HareruyaAdapter()
+    qb = {"id": 13, "game_code": "pokemon", "pack_code": "sA",
+          "card_code": None, "model_number": "013", "number": "013/023",
+          "full_name": "クイックボール"}
+    q = a.build_query(qb)
+    assert q.match["full"] == "013/023"
+    html = _hareruya_html([
+        ("クイックボール:ミラー(D){グッズ}〈013/023〉[SA-gM]", "2,500円"),
+        ("しんかのおこう:ミラー(D){グッズ}〈013/023〉[SA-frM]", "700円"),
+    ])
+    offer = a.select(a.parse(html, q), q)
+    assert offer is not None and offer.price == 2500
+
+
 # ====================================================================
 # ONE PIECE — CardRush OP (numerazione OP01-001 + varianti) e Yuyu-tei
 # ====================================================================

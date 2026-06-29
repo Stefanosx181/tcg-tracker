@@ -208,15 +208,26 @@ class HareruyaAdapter(SourceAdapter):
     display_name = "Hareruya"
     games = {"pokemon"}              # hare2buy.com copre SOLO Pokémon (vedi docs/SOURCES.md)
 
+    # se, dopo il match per numero+set, restano prezzi che divergono piu' di tanto,
+    # quasi certamente sono carte DIVERSE con lo stesso numero (collisione di ricerca):
+    # meglio NESSUN prezzo che un buyback sbagliato (vedi docs/AUDIT.md).
+    AMBIGUITY_RATIO = 4.0
+
     def build_query(self, card) -> Query:
         model = _field(card, "model_number", "")
+        # numero di collezione PIENO (###/###): prima dal card_code legacy, poi dal
+        # numero CANONICO (catalogo harvested: c.number='058/165'), poi dal model.
+        # Senza un numero pieno NON interroghiamo Hareruya: la ricerca col solo
+        # numeratore agganciava la carta sbagliata (collisioni cross-set).
         full = (sc._collector_number(_field(card, "card_code", ""))
+                or sc._collector_number(_field(card, "number", ""))
                 or sc._collector_number(model))
-        query = full or model
-        if not query:
+        if not full:
             return Query(url="", match={})
-        url = sc.HARERUYA_SEARCH.format(q=requests.utils.quote(query))
-        return Query(url=url, match={"full": full, "pack": _field(card, "pack_code")})
+        url = sc.HARERUYA_SEARCH.format(q=requests.utils.quote(full))
+        return Query(url=url, match={"full": full,
+                                     "pack": _field(card, "pack_code"),
+                                     "name": _field(card, "full_name")})
 
     def fetch(self, query: Query, client) -> str:
         return client.get(query.url).text
@@ -224,23 +235,40 @@ class HareruyaAdapter(SourceAdapter):
     def parse(self, raw: str, query: Query) -> list:
         items = sc.parse_hareruya(raw)        # puo' sollevare LayoutError
         full = query.match.get("full")
-        pack = query.match.get("pack")
-        target_num = full.split("/")[0].lstrip("0") if full else None
-        offers = []
+        want_name = (query.match.get("name") or "").strip()
+        # target = (numeratore, denominatore) entrambi senza zeri iniziali.
+        # Match sul numero PIENO (non solo il numeratore): '058/165' NON deve
+        # agganciare '058/100' di un altro set.
+        if full and "/" in full:
+            tn, td = full.split("/", 1)
+            target = (tn.lstrip("0"), td.lstrip("0"))
+        else:
+            target = None
+        # 1) filtro per numero pieno
+        matched = []   # (price, hareruya_name)
         for it in items:
             name = it.get("name", "")
-            if target_num is not None:
+            if target is not None:
                 cm = sc._COLLECTOR_RE.search(name)
-                if not cm or cm.group(1).lstrip("0") != target_num:
+                if not cm or (cm.group(1).lstrip("0"), cm.group(2).lstrip("0")) != target:
                     continue
-                if pack:
-                    pm = sc._PACK_RE.search(name)
-                    if pm and pm.group(1).lower() != pack.lower():
-                        continue
             p = it.get("price")
             if p:
-                offers.append(Offer(price=p))
-        return offers
+                matched.append((p, name))
+        # 2) disambigua per NOME carta: piu' carte possono condividere lo stesso
+        #    numero (sotto-set/varianti). Il tag set di Hareruya e' inaffidabile
+        #    (trattini, codici diversi), quindi si filtra sul nome JP. Se nessun
+        #    nome combacia (formati diversi) si ripiega su tutti i match per numero.
+        if want_name:
+            by_name = [(p, n) for (p, n) in matched if want_name in n]
+            if by_name:
+                matched = by_name
+        # 3) guard ambiguita': se restano prezzi troppo divergenti, quasi certo
+        #    collisione non risolta -> niente prezzo (meglio nessuno che sbagliato).
+        prices = [p for (p, _) in matched]
+        if len(set(prices)) >= 2 and min(prices) and max(prices) / min(prices) > self.AMBIGUITY_RATIO:
+            return []
+        return [Offer(price=p) for (p, _) in matched]
 
 
 # ----------------------------------------------------------------------

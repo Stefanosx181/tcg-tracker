@@ -24,6 +24,9 @@ on:
       batch:
         description: "Carte per lotto, per fonte"
         default: "2600"
+      sources:
+        description: "Quali fonti: both | cardrush | hareruya (per re-scrape mirate)"
+        default: "both"
 
 # serve per ricommittare il DB e i JSON aggiornati nel repo
 permissions:
@@ -60,7 +63,10 @@ jobs:
 
       # CardRush PER-CARTA (forma SPA, NON la lista 403). Se bloccasse anche il per-carta
       # (errori rete su >=50% del lotto) run.py esce con errore -> notifica.
+      # 'sources' (workflow_dispatch) permette re-scrape mirate: una sola fonte.
+      # Schedule/altri eventi -> input vuoto -> entrambe le fonti girano.
       - name: Lotto CardRush per-carta per staleness
+        if: ${{ github.event.inputs.sources != 'hareruya' }}
         run: >
           python src/run.py --game pokemon --only cardrush
           --batch ${{ env.BATCH }} --sleep 1.0 --jitter 0.6 --set-gap 2
@@ -68,6 +74,7 @@ jobs:
       # Hareruya per-carta, per staleness. Spezzato su 4 finestre/notte (vedi schedule)
       # per non stressarlo: ogni run ne tocca ~2.600, le piu' stantie.
       - name: Lotto Hareruya per-carta per staleness
+        if: ${{ github.event.inputs.sources != 'cardrush' }}
         run: >
           python src/run.py --game pokemon --only hareruya
           --batch ${{ env.BATCH }} --sleep 1.0 --jitter 0.6 --set-gap 2
