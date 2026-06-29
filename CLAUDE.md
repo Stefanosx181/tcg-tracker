@@ -192,6 +192,9 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - **DB committato a ogni run + catalogo grande**: con ~10k carte Pokémon ogni notte si
   aggiungono ~10k righe prezzo CR + i lotti Hareruya → `tcg_tracker.db` cresce in fretta e gonfia
   la history git. Da affrontare in Fase 5 (es. salvare solo i prezzi CAMBIATI, o DB fuori da git).
+- **buylist.json ENORME (~8 MB)**: con 10k carte la UI fa `fetch` dell'intero file al load →
+  caricamento/rendering lenti. Follow-up UX (Fase 4): paginazione/lazy per set o file per-gioco,
+  oppure caricare solo l'indice e i dettagli on-demand. Non è un bug, è scala.
 - **Rumore nel catalogo Pokémon completo**: 351 "set" includono micro-bucket di CardRush
   (codici di 1 carattere, `その他`, voci `model_number` non-carta come `旧裏`); alcune carte hanno
   rarità `-`/vuota. È il prezzo di "tutte le carte"; eventuale pulizia = filtro AGGIUNTIVO, non
