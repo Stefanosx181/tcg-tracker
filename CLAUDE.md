@@ -252,6 +252,11 @@ con stato (aggiornalo a fine fase):
       IMMAGINI OP/YGO: scaricate da Yuyu-tei in `dashboard/images/` (43 OP + 200 YGO = 243),
       colonna `tcg_card.image_url` + campo `image` nel buylist; la UI usa `c.image` se presente,
       altrimenti il path legacy `.webp` (Pokémon). Harvest con `build_catalog.py … --images`.
+      REDESIGN PREMIUM "Sumi 墨" (vedi `docs/UI_REDESIGN_SUMI.md`): cornice ridisegnata
+      (token `--f-*`, Inter + Zen Old Mincho, accento rosso-sigillo, header/wordmark, segmented
+      games + ¥/€, stat-chip totali, set-head eleganti, modal→bottom-sheet, skeleton, empty,
+      focus-visible, reduced-motion). ⚠️ Le CARD restano INVARIATE (`.grid`/`.tile`/`.imgbox` +
+      token-card): vietato modificarle.
       SCALA (catalogo Pokémon ~10k): render LAZY (set chiusi di default, tile on-demand, cap 400)
       + buylist.json snellito → niente freeze al load. VALUTA: toggle ¥/€ con conversione
       automatica (tasso live Frankfurter + fallback, persistito in localStorage). INDICE
