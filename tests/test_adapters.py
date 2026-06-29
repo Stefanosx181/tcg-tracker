@@ -52,11 +52,12 @@ class _FakeClient:
 # ====================================================================
 def test_registry_sources_and_game_routing():
     codes = [a.source_code for a in ad.ADAPTERS]
-    assert codes == ["cardrush", "hareruya", "yuyutei"]
+    assert codes == ["cardrush", "hareruya", "yuyutei", "toretoku"]
     assert ad.get_adapters("hareruya")[0].source_code == "hareruya"
-    # routing per gioco: Pokémon = cardrush+hareruya; One Piece = cardrush+yuyutei
+    # routing per gioco: Pokémon = cardrush+hareruya; One Piece = cardrush+TORETOKU
+    # (Yuyu-tei OP dismessa, vedi docs/SOURCES_BUYBACK_OP_YGO.md); Yu-Gi-Oh = cardrush+yuyutei
     assert [a.source_code for a in ad.get_adapters(game="pokemon")] == ["cardrush", "hareruya"]
-    assert [a.source_code for a in ad.get_adapters(game="onepiece")] == ["cardrush", "yuyutei"]
+    assert [a.source_code for a in ad.get_adapters(game="onepiece")] == ["cardrush", "toretoku"]
 
 
 # ====================================================================
@@ -193,7 +194,9 @@ def test_cardrush_op_parallel_picks_parallel_listing():
 def test_cardrush_supports_all_games_hareruya_only_pokemon():
     assert ad.CardRushAdapter().supports("onepiece") is True
     assert ad.HareruyaAdapter().supports("onepiece") is False
-    assert ad.YuyuteiAdapter().supports("onepiece") is True
+    assert ad.YuyuteiAdapter().supports("onepiece") is False   # OP -> Toretoku ora
+    assert ad.ToretokuAdapter().supports("onepiece") is True
+    assert ad.ToretokuAdapter().supports("yugioh") is False     # YGO resta Yuyu-tei
     assert ad.YuyuteiAdapter().supports("pokemon") is False
 
 
@@ -219,6 +222,36 @@ def test_yuyutei_parse_layout_error():
     q = a.build_query(OP_CARD_STD)
     with pytest.raises(sc.LayoutError):
         a.parse("<html>pagina irriconoscibile</html>", q)
+
+
+# --- Toretoku (nuova fonte buyback One Piece, al posto di Yuyu-tei) ---
+TORETOKU_OP_HTML = (FIX / "toretoku_onepiece.html").read_text(encoding="utf-8")
+
+
+def test_toretoku_parse_buyback_prices():
+    items = sc.parse_toretoku(TORETOKU_OP_HTML)
+    assert len(items) > 50
+    luffy = [it for it in items if it["number"] == "OP01-003"]
+    assert luffy and luffy[0]["price"] == 33500       # 買取価格 (acquisto)
+    assert "パラレル" in luffy[0]["name"] and luffy[0]["rarity"] == "L"
+
+
+def test_toretoku_build_query_single_list():
+    a = ad.ToretokuAdapter()
+    q = a.build_query(OP_CARD_STD)
+    assert q.url == "https://kaitori-toretoku.jp/buypricelist/onepiece"
+    assert q.match["number"] == "OP01-001"
+
+
+def test_toretoku_adapter_scrape_op_parallel():
+    a = ad.ToretokuAdapter()
+    par = a.scrape(OP_CARD_PARALLEL, _FakeClient(TORETOKU_OP_HTML))
+    assert par is not None and "パラレル" in par.variant and par.price > 0
+
+
+def test_toretoku_parse_layout_error():
+    with pytest.raises(sc.LayoutError):
+        sc.parse_toretoku("<html>nessun item</html>")
 
 
 # ====================================================================

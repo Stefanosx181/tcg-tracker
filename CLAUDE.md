@@ -48,7 +48,7 @@ Excel (seed) → db/ SQL → tcg_tracker.db (SQLite)
    → src/scrapers.py  (livello basso: HttpClient + parse_cardrush/hareruya/yuyutei + LayoutError)
    → src/adapters.py  (SourceAdapter per fonte: build_query/fetch/parse→Offer; registry ADAPTERS;
                        routing per GIOCO via a.supports(game): Pokémon=cardrush+hareruya,
-                       One Piece=cardrush+yuyutei)
+                       One Piece=cardrush+TORETOKU, Yu-Gi-Oh=cardrush+yuyutei)
    → src/run.py       (orchestratore: per ogni carta cicla gli adapter del suo gioco; --game/--set)
    → src/database.py  (accesso DB, save_price con carry-forward, export_web → JSON multi-fonte)
    → dashboard/data/*.json (buylist.json, history.json, setindex.json, movers.json)
@@ -63,7 +63,9 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   + helper. `LayoutError` = struttura pagina cambiata (≠ "0 risultati"). Selettori in `HARERUYA_SELECTORS`.
 - `src/adapters.py` — interfaccia `SourceAdapter` (`build_query`/`fetch`/`parse`→`Offer`, +
   `select` variant-aware/`scrape` condivisi, `supports(game)`) e gli adapter `CardRushAdapter`
-  (tutti i giochi), `HareruyaAdapter` (solo Pokémon), `YuyuteiAdapter` (One Piece + Yu-Gi-Oh,
+  (tutti i giochi), `HareruyaAdapter` (solo Pokémon), `ToretokuAdapter` (PREZZI One Piece,
+  buyback specialista `kaitori-toretoku.jp`, lista unica per gioco), `YuyuteiAdapter` (PREZZI
+  solo Yu-Gi-Oh; per OP resta solo CATALOGO via build_catalog,
   per-set `/buy/{opc|ygo}/s/{set}` con cache). Registry `ADAPTERS`. Aggiungere una fonte = aggiungere
   un adapter qui (vedi `docs/ADAPTERS.md`).
 - `src/database.py` — `save_price` (status esplicito `confirmed/carried/absent`, carry-forward
@@ -110,7 +112,7 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 python src/init_db.py            # crea/aggiorna DB v1->v2 (storico preservato)
 python src/run.py --limit 3      # test scraping su 3 carte
 python src/run.py --set S12A     # un solo set
-python src/run.py --game onepiece  # solo One Piece (adapter cardrush+yuyutei)
+python src/run.py --game onepiece  # solo One Piece (prezzi: cardrush+toretoku)
 python src/run.py --only cardrush
 python db/migrate_001_multigame.py tcg_tracker.backup.db  # migrazione su un file specifico
 pytest                           # test scraper+migrazione+adapter offline (usa tests/fixtures/)

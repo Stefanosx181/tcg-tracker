@@ -336,12 +336,27 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
     meta_by_card = {cid: (game, number, image)
                     for cid, game, number, image in cur.fetchall()}
     # ordine di preferenza fonti (per il tie-break di best_source, come il v1)
-    src_order = ["cardrush", "hareruya", "yuyutei"]
+    src_order = ["cardrush", "hareruya", "yuyutei", "toretoku"]
+    # Fonti CORRENTI per gioco (dal registry adapter): cosi' i prezzi di una fonte
+    # DISMESSA per un gioco (es. Yuyu-tei per One Piece, ora -> Toretoku) restano
+    # nello storico ma NON vengono mostrati. Niente cancellazione di storico.
+    import adapters as _ad
+    _allowed_cache = {}
+
+    def _allowed(game):
+        if game not in _allowed_cache:
+            _allowed_cache[game] = ({a.source_code for a in _ad.ADAPTERS if a.supports(game)}
+                                    if game else None)
+        return _allowed_cache[game]
+
     for r in rows:
         cid = r["card_id"]
-        pr = prices_by_card.get(cid, {})
-        r["prices"] = pr
         game, number, image = meta_by_card.get(cid, (None, None, None))
+        pr = prices_by_card.get(cid, {})
+        allow = _allowed(game)
+        if allow is not None:
+            pr = {s: v for s, v in pr.items() if s in allow}
+        r["prices"] = pr
         r["game"] = game
         # OP/YGO non hanno il card_code legacy: esponi il numero canonico
         # (es. OP01-120) come codice, cosi' la carta resta identificabile nella UI.

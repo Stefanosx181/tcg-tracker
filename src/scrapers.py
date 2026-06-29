@@ -389,6 +389,51 @@ def parse_yuyutei(html: str) -> list:
     return out
 
 
+TORETOKU_SELECTORS = {
+    "item":  ".item",
+    "price": ".item__price .price",   # contiene "買取価格" + "￥33,500"
+    "name":  ".item__name",           # "<nome>(stampa) <CODICE> <RARITA'>"
+    "image": ".item__image img",
+}
+# numerazione One Piece su Toretoku: OP/EB/ST/PRB + nn-nnn, oppure promo P-nnn
+_OPC_CODE_RE = re.compile(r"\b((?:OP|EB|ST|PRB)\d{2}-\d{3}|P-\d{2,})\b")
+
+
+def parse_toretoku(html: str) -> list:
+    """HTML della lista buyback Toretoku (One Piece) ->
+    lista di {'number','name','rarity','price','image'}.
+
+    Il prezzo e' il BUYBACK (買取価格), cioe' quanto Toretoku PAGA. LayoutError se
+    manca del tutto la struttura `.item` (pagina cambiata); [] se non ci sono carte
+    riconoscibili."""
+    soup = BeautifulSoup(html or "", "html.parser")
+    items = soup.select(TORETOKU_SELECTORS["item"])
+    if not items:
+        raise LayoutError("toretoku: nessun .item (layout cambiato?)")
+    out = []
+    for it in items:
+        name_el = it.select_one(TORETOKU_SELECTORS["name"])
+        price_el = it.select_one(TORETOKU_SELECTORS["price"])
+        if not (name_el and price_el):
+            continue
+        price = _to_int_price(price_el.get_text())
+        if not price:
+            continue
+        txt = name_el.get_text(" ", strip=True)
+        m = _OPC_CODE_RE.search(txt)
+        if not m:
+            continue
+        number = m.group(1)
+        after = txt[m.end():].strip()
+        rarity = after.split()[0] if after else ""     # token dopo il codice
+        name = txt[:m.start()].strip()                 # testo prima del codice
+        img_el = it.select_one(TORETOKU_SELECTORS["image"])
+        image = (img_el.get("src") or img_el.get("data-src")) if img_el else None
+        out.append({"number": number, "name": name, "rarity": rarity,
+                    "price": price, "image": image})
+    return out
+
+
 def polite_sleep(sec=1.0):
     """Deprecata: il rate-limiting e' ora in HttpClient. Mantenuta per compat."""
     time.sleep(sec)

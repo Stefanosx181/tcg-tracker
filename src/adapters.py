@@ -220,7 +220,10 @@ class HareruyaAdapter(SourceAdapter):
 class YuyuteiAdapter(SourceAdapter):
     source_code = "yuyutei"
     display_name = "Yuyu-tei"
-    games = {"onepiece", "yugioh"}   # pagine per-set identiche: /buy/opc|ygo/s/{set}
+    games = {"yugioh"}               # PREZZI: solo Yu-Gi-Oh (affidabile, insegue CardRush).
+    # NB: per One Piece i PREZZI passano a Toretoku (Yuyu-tei OP troppo basso/mismatch,
+    # vedi docs/SOURCES_BUYBACK_OP_YGO.md). Il CATALOGO OP resta da Yuyu-tei via
+    # build_catalog.py (usa GAME_SEGMENT['onepiece'], non `supports`).
 
     # segmento di percorso per gioco: /buy/{seg}/s/{set}
     GAME_SEGMENT = {"pokemon": "poke", "onepiece": "opc", "yugioh": "ygo"}
@@ -266,9 +269,53 @@ class YuyuteiAdapter(SourceAdapter):
 
 
 # ----------------------------------------------------------------------
+# Toretoku (kaitori-toretoku.jp) — buyback One Piece, lista unica per gioco
+# ----------------------------------------------------------------------
+class ToretokuAdapter(SourceAdapter):
+    source_code = "toretoku"
+    display_name = "Toretoku"
+    games = {"onepiece"}             # specialista 買取; per OP paga molto meglio di Yuyu-tei
+    URL = "https://kaitori-toretoku.jp/buypricelist/onepiece"
+
+    def __init__(self):
+        # la lista OP intera (~300+ carte) si scarica UNA volta per run e si filtra
+        # per numero: niente URL per-set su Toretoku.
+        self._cache = {}
+
+    def build_query(self, card) -> Query:
+        number = _field(card, "number", "") or _field(card, "card_code", "")
+        if not number:
+            return Query(url="", match={})
+        return Query(url=self.URL, match={
+            "number": number,
+            "variant": _field(card, "variant", "") or "",
+        })
+
+    def fetch(self, query: Query, client) -> str:
+        if query.url not in self._cache:
+            self._cache[query.url] = client.get(query.url).text
+        return self._cache[query.url]
+
+    def parse(self, raw: str, query: Query) -> list:
+        items = sc.parse_toretoku(raw)        # puo' sollevare LayoutError
+        want = (query.match.get("number") or "").upper()
+        offers = []
+        for it in items:
+            if (it.get("number") or "").upper() != want:
+                continue
+            p = it.get("price")
+            if not p:
+                continue
+            # la variante (parallel) e' nel nome, come Yuyu-tei
+            variant = "パラレル" if "パラレル" in (it.get("name") or "") else ""
+            offers.append(Offer(price=p, variant=variant))
+        return offers
+
+
+# ----------------------------------------------------------------------
 # Registry
 # ----------------------------------------------------------------------
-ADAPTERS = [CardRushAdapter(), HareruyaAdapter(), YuyuteiAdapter()]
+ADAPTERS = [CardRushAdapter(), HareruyaAdapter(), YuyuteiAdapter(), ToretokuAdapter()]
 
 
 def get_adapters(only: str = None, game: str = None):

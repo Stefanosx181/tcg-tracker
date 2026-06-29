@@ -45,6 +45,12 @@ def main():
         sys.exit(1)
 
     conn = db.get_conn()
+    # registra le sorgenti del registry (FK di tcg_price) se mancano: cosi'
+    # aggiungere un adapter (es. Toretoku) non rompe save_price.
+    for a in ad.ADAPTERS:
+        conn.execute("INSERT OR IGNORE INTO tcg_source (source_code, display_name) VALUES (?,?)",
+                     (a.source_code, a.display_name))
+    conn.commit()
     cards = db.fetch_cards(conn)
     if args.set:
         cards = [c for c in cards if c["pack_code"].upper() == args.set.upper()]

@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   :root{ --bg:#0f1320; --card:#161b2c; --card2:#1b2236; --line:#27304a; --txt:#e6e9f2;
-         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --yt:#c08af5; --best:#3ddc97; --stale:#d9b36b; }
+         --muted:#8b94ad; --cr:#5aa9ff; --hr:#ff8a5a; --yt:#c08af5; --tt:#3ddc97; --best:#3ddc97; --stale:#d9b36b; }
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
        background:var(--bg);color:var(--txt);font-size:14px;
@@ -54,7 +54,7 @@
   .set-tot{margin-left:auto;display:flex;gap:22px;font-size:13px;font-variant-numeric:tabular-nums}
   .set-tot .lbl{color:var(--muted);font-size:11px;display:block}
   .set-tot .cr{color:var(--cr);font-weight:700} .set-tot .hr{color:var(--hr);font-weight:700}
-  .set-tot .yt{color:var(--yt);font-weight:700}
+  .set-tot .yt{color:var(--yt);font-weight:700} .set-tot .tt{color:var(--tt);font-weight:700}
   .caret{color:var(--muted);font-size:13px;width:14px}
 
   /* griglia card */
@@ -74,13 +74,13 @@
   .prices{display:grid;grid-template-columns:1fr;gap:6px}
   .prow{display:flex;align-items:center;gap:7px;font-size:13px;font-variant-numeric:tabular-nums}
   .prow .tag{font-size:10px;font-weight:700;width:24px}
-  .prow .tag.cr{color:var(--cr)} .prow .tag.hr{color:var(--hr)} .prow .tag.yt{color:var(--yt)}
+  .prow .tag.cr{color:var(--cr)} .prow .tag.hr{color:var(--hr)} .prow .tag.yt{color:var(--yt)} .prow .tag.tt{color:var(--tt)}
   .prow .val{font-weight:600}
   .prow .w{color:var(--muted);font-size:11px;margin-left:auto}
   .prow.stale .val{font-style:italic;color:var(--stale)}
   .bar{height:4px;border-radius:3px;background:#0a0d16;overflow:hidden;margin-top:3px}
   .bar i{display:block;height:100%}
-  .bar i.cr{background:var(--cr)} .bar i.hr{background:var(--hr)} .bar i.yt{background:var(--yt)}
+  .bar i.cr{background:var(--cr)} .bar i.hr{background:var(--hr)} .bar i.yt{background:var(--yt)} .bar i.tt{background:var(--tt)}
   .empty{padding:50px;text-align:center;color:var(--muted)}
 
   /* modal grafico */
@@ -199,11 +199,12 @@ const imgSrc = c => c.image || `images/${c.pack_code}_${c.model_number}.webp`;
 
 // Fonti generiche: ogni gioco usa la sua coppia (Pokémon=cardrush+hareruya,
 // One Piece=cardrush+yuyutei...). La dashboard si adatta alle fonti presenti.
-const SRC_ORDER = ["cardrush","hareruya","yuyutei"];
+const SRC_ORDER = ["cardrush","hareruya","yuyutei","toretoku"];
 const SRC_META = {
   cardrush:{tag:"CR",cls:"cr",name:"CardRush",color:"#5aa9ff"},
   hareruya:{tag:"HR",cls:"hr",name:"Hareruya",color:"#ff8a5a"},
   yuyutei:{tag:"YT",cls:"yt",name:"Yuyu-tei",color:"#c08af5"},
+  toretoku:{tag:"TT",cls:"tt",name:"Toretoku",color:"#3ddc97"},
 };
 // Tollerante a DUE schemi: multi-fonte c.prices{src:{price,stock}} (dati deployati su
 // Cloudflare) e legacy piatto c.cardrush_price/c.cardrush_stock (snapshot locale finche'
