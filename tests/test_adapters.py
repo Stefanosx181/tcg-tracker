@@ -242,6 +242,20 @@ def test_hareruya_name_disambiguates_same_number_different_card():
     assert offer is not None and offer.price == 2500
 
 
+def test_hareruya_no_price_when_our_card_absent():
+    # caso REALE: la NOSTRA carta non e' su Hareruya, ma il numero aggancia una
+    # carta DIVERSA (es. nostro コイル 001/015 -> Hareruya ha solo ピカチュウV 001/015).
+    # Il nome NON combacia -> NESSUN prezzo, NON la carta sbagliata (no fallback).
+    a = ad.HareruyaAdapter()
+    magnemite = {"id": 1, "game_code": "pokemon", "pack_code": "PH-I",
+                 "card_code": None, "model_number": "001", "number": "001/015",
+                 "full_name": "コイル"}
+    q = a.build_query(magnemite)
+    html = _hareruya_html([("ピカチュウV(D){雷}〈001/015〉[S8a-G]", "100,000円")])
+    assert a.parse(html, q) == []
+    assert a.scrape(magnemite, _FakeClient(html)) is None
+
+
 # ====================================================================
 # ONE PIECE — CardRush OP (numerazione OP01-001 + varianti) e Yuyu-tei
 # ====================================================================

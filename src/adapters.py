@@ -58,6 +58,12 @@ def _field(card, key, default=None):
     return v if v is not None else default
 
 
+def _norm_name(s):
+    """Normalizza un nome carta per il confronto: niente spazi (anche full-width),
+    case-insensitive (cosi' 'ex'/'EX' combaciano). I caratteri giapponesi restano."""
+    return (s or "").lower().replace(" ", "").replace("　", "")
+
+
 # ----------------------------------------------------------------------
 # Interfaccia
 # ----------------------------------------------------------------------
@@ -255,14 +261,16 @@ class HareruyaAdapter(SourceAdapter):
             p = it.get("price")
             if p:
                 matched.append((p, name))
-        # 2) disambigua per NOME carta: piu' carte possono condividere lo stesso
-        #    numero (sotto-set/varianti). Il tag set di Hareruya e' inaffidabile
-        #    (trattini, codici diversi), quindi si filtra sul nome JP. Se nessun
-        #    nome combacia (formati diversi) si ripiega su tutti i match per numero.
+        # 2) QUALIFICA per NOME carta. Lo stesso numero aggancia spesso una carta
+        #    DIVERSA (sotto-set/varianti) e MOLTO spesso la nostra carta non e' su
+        #    Hareruya affatto. Il tag set di Hareruya e' inaffidabile (trattini,
+        #    codici diversi), quindi il NOME e' REQUISITO: se nessun risultato
+        #    contiene il nome della carta -> NIENTE prezzo (mai ripiegare sulla
+        #    carta sbagliata). Confronto normalizzato (no spazi, case-insensitive
+        #    per ex/EX). Senza nome (raro) si resta sul match per numero.
         if want_name:
-            by_name = [(p, n) for (p, n) in matched if want_name in n]
-            if by_name:
-                matched = by_name
+            key = _norm_name(want_name)
+            matched = [(p, n) for (p, n) in matched if key and key in _norm_name(n)]
         # 3) guard ambiguita': se restano prezzi troppo divergenti, quasi certo
         #    collisione non risolta -> niente prezzo (meglio nessuno che sbagliato).
         prices = [p for (p, _) in matched]
