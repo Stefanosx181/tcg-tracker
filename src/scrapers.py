@@ -159,6 +159,35 @@ def parse_cardrush(text: str) -> list:
     raise LayoutError("cardrush: pageProps senza 'buyingPrices' (layout cambiato?)")
 
 
+def pokemon_cardrush_url(model: str = "", pack: str = "", page: int = 1) -> str:
+    """URL CardRush Pokemon nella forma COMPLETA che manda la SPA del sito.
+
+    CRITICO anti-403: dagli IP datacenter (GitHub Actions) CardRush blocca le
+    richieste "nude" (es. solo ?model_number=X) ma ACCETTA la richiesta completa
+    del browser (displayMode/associations/to_json_option/display_category/is_hot...).
+    Verificato sui log: le carte con URL minimale danno 403, quelle con URL
+    completo passano. Stesso set di parametri della SPA, in ordine.
+
+      - per-carta: model = numero (prefisso, es. '262'), pack = set_code (es. 'S12a')
+      - lista/catalogo: model='' e pack='' iterando `page` (1..lastPage)
+    """
+    params = [
+        ("displayMode", "画像"), ("limit", "100"), ("name", ""), ("rarity", ""),
+        ("model_number", model), ("amount", ""), ("page", str(page)),
+        ("sort[key]", "amount"), ("sort[order]", "desc"),
+        ("associations[]", "ocha_product"),
+        ("to_json_option[except][]", "original_image_source"),
+        ("to_json_option[except][]", "created_at"),
+        ("to_json_option[include][ocha_product][only][]", "id"),
+        ("to_json_option[include][ocha_product][methods][]", "image_source"),
+        ("pack_code", pack), ("element", ""), ("pack_name", ""),
+        ("display_category[]", "最新弾"), ("display_category[]", "スタンダード"),
+        ("display_category[]", "エクストラ"), ("display_category[]", "旧裏"),
+        ("is_hot[]", "true"), ("is_hot[]", "false"),
+    ]
+    return "https://cardrush.media/pokemon/buying_prices?" + urlparse.urlencode(params)
+
+
 def cardrush_last_page(text: str):
     """Numero di pagine totali della lista buyback CardRush (pageProps.lastPage).
 

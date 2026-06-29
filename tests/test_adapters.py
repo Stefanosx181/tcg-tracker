@@ -145,9 +145,21 @@ class _BoomClient:
         raise requests.ConnectionError("boom")
 
 
-def test_scrape_network_error_returns_none():
-    assert ad.CardRushAdapter().scrape(CARD, _BoomClient()) is None
-    assert ad.HareruyaAdapter().scrape(CARD, _BoomClient()) is None
+def test_scrape_network_error_propagates():
+    # contratto aggiornato: l'errore di rete/HTTP (es. 403) PROPAGA -> run.py lo conta
+    # come blocco (distinto da 'carta non trovata'). Non piu' silenziato a None.
+    with pytest.raises(requests.RequestException):
+        ad.CardRushAdapter().scrape(CARD, _BoomClient())
+    with pytest.raises(requests.RequestException):
+        ad.HareruyaAdapter().scrape(CARD, _BoomClient())
+
+
+def test_cardrush_pokemon_uses_full_spa_url():
+    # anti-403: per i Pokemon l'URL CardRush e' la forma COMPLETA della SPA
+    a = ad.CardRushAdapter()
+    q = a.build_query(dict(CARD, game_code="pokemon"))
+    assert "associations" in q.url and "display_category" in q.url and "is_hot" in q.url
+    assert q.match["model"] == "262" and q.match["pack"] == "S12a"
 
 
 def test_build_query_empty_when_no_number():

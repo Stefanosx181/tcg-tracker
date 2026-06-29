@@ -21,6 +21,7 @@ import sys
 import time
 import random
 import argparse
+import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import database as db
@@ -130,9 +131,13 @@ def main():
     # contatori per fonte: servono a capire se un sito ha smesso di rispondere
     tried = {s: 0 for s in all_sources}
     found = {s: 0 for s in all_sources}
-    # errori di LAYOUT (struttura della pagina cambiata): distinti dal semplice
-    # "carta non trovata", servono per un allarme piu' fine (vedi sotto).
+    # errori di LAYOUT (struttura della pagina cambiata) e di RETE/HTTP (403, timeout):
+    # distinti dal "carta non trovata" (risposta pulita ma nessun buyback). L'allarme
+    # rottura si basa su QUESTI, non su "0 prezzi": col catalogo completo molte carte
+    # low-value non sono ricomprate da una fonte (0 prezzi LEGITTIMO), mentre un blocco
+    # 403 alza il tasso di ERRORI.
     layout_err = {s: 0 for s in all_sources}
+    net_err = {s: 0 for s in all_sources}
 
     prev_pack = None
     for i, c in enumerate(cards, 1):
@@ -151,6 +156,10 @@ def main():
                 layout_err[src] += 1
                 offer = None
                 print(f"    {src} : LAYOUT? {e}")
+            except requests.RequestException as e:
+                net_err[src] += 1
+                offer = None
+                print(f"    {src} : errore rete {e}")
             price = offer.price if offer else None
             stock = offer.in_stock if offer else False
             db.save_price(conn, c["id"], src, price, stock)
@@ -168,32 +177,33 @@ def main():
     print(f"\nFatto. {n} righe esportate in dashboard/data/")
     for src in tried:
         if tried[src]:
-            le = f", layout? {layout_err[src]}" if layout_err[src] else ""
-            print(f"  {src}: {found[src]}/{tried[src]} con prezzo{le}")
+            extra = []
+            if net_err[src]:
+                extra.append(f"errori rete {net_err[src]}")
+            if layout_err[src]:
+                extra.append(f"layout? {layout_err[src]}")
+            tail = f" ({', '.join(extra)})" if extra else ""
+            print(f"  {src}: {found[src]}/{tried[src]} con prezzo{tail}")
 
-    # Rilevamento rotture (due segnali, piu' fine del solo conteggio a zero):
-    #   1) NESSUN prezzo trovato per una fonte interrogata (blocco totale);
-    #   2) molte pagine con STRUTTURA cambiata (LayoutError oltre una soglia):
-    #      cattura le rotture PARZIALI che prima passavano inosservate.
-    # In entrambi i casi usciamo con errore: in GitHub Actions il workflow
-    # fallisce e arriva la notifica.
-    LAYOUT_FRACTION = 0.30   # >30% delle pagine di una fonte con layout rotto
-    # Soglia minima di tentativi per il segnale "0 prezzi": col catalogo COMPLETO
-    # un lotto Hareruya (--batch) puo' contenere molte carte che Hareruya non
-    # ricompra affatto -> 0 prezzi NON significa rottura. Con un campione ampio,
-    # invece, 0/molti = quasi certamente blocco IP / layout. Sotto soglia non allarma.
-    ZERO_MIN_TRIED = 30
+    # Rilevamento ROTTURE basato sul tasso di ERRORI, NON su "0 prezzi":
+    #   - net_err alto  -> la fonte risponde male (403/blocco IP, timeout) su molte richieste;
+    #   - layout_err alto -> la struttura della pagina e' cambiata.
+    # "0 prezzi con risposte pulite" NON e' rottura: col catalogo completo molte carte
+    # non sono ricomprate da una fonte (Hareruya non compra le low-value, ecc.).
+    # In caso di rottura usciamo con errore -> in GitHub Actions il job fallisce e notifica.
+    ERR_FRACTION = 0.50      # >50% delle richieste di una fonte in errore rete/HTTP
+    LAYOUT_FRACTION = 0.30   # >30% con struttura cambiata
     broken = []
     for s in tried:
         if not tried[s]:
             continue
-        if found[s] == 0 and tried[s] >= ZERO_MIN_TRIED:
-            broken.append(f"{s} (0 prezzi su {tried[s]})")
+        if net_err[s] >= max(5, ERR_FRACTION * tried[s]):
+            broken.append(f"{s} ({net_err[s]}/{tried[s]} errori rete/403 — blocco?)")
         elif layout_err[s] >= max(3, LAYOUT_FRACTION * tried[s]):
             broken.append(f"{s} ({layout_err[s]}/{tried[s]} layout cambiato)")
     if broken:
         print(f"\nATTENZIONE: possibile rottura scraper: {', '.join(broken)}.")
-        print("Possibile cambio layout del sito o blocco IP. Controllare scrapers.py.")
+        print("Probabile cambio layout o blocco IP/403. Controllare scrapers.py / fonti.")
         sys.exit(2)
 
 

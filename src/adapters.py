@@ -110,17 +110,15 @@ class SourceAdapter(ABC):
         return max(pool, key=lambda o: o.price) if pool else None
 
     def scrape(self, card, client: "sc.HttpClient | None" = None):
-        """Orchestra build_query -> fetch -> parse -> select. Ritorna Offer|None.
-        Errore di rete -> None. LayoutError -> propagata (la gestisce run.py)."""
+        """Orchestra build_query -> fetch -> parse -> select. Ritorna Offer|None
+        (None = url assente o nessuna offerta che matcha). Errore di rete/HTTP
+        (incluso 403) -> requests.RequestException PROPAGATA: run.py la conta come
+        ERRORE/blocco (distinto da 'carta non trovata'). LayoutError -> propagata."""
         client = client or sc._default_client()
         q = self.build_query(card)
         if not q or not q.url:
             return None
-        try:
-            raw = self.fetch(q, client)
-        except requests.RequestException as e:
-            print(f"  [{self.source_code}] errore rete: {e}")
-            return None
+        raw = self.fetch(q, client)          # RequestException (es. 403) propaga
         offers = self.parse(raw, q)          # puo' sollevare LayoutError
         return self.select(offers, q)
 
@@ -133,13 +131,24 @@ class CardRushAdapter(SourceAdapter):
     display_name = "CardRush"
 
     def build_query(self, card) -> Query:
+        game = _field(card, "game_code", "") or ""
+        # POKEMON: costruisci l'URL COMPLETO (forma SPA) da model+pack. Anti-403:
+        # CardRush blocca le richieste minimali da datacenter, accetta quelle complete.
+        if game == "pokemon":
+            model = (str(_field(card, "model_number", "") or "").strip()
+                     or str(_field(card, "number", "") or "").split("/")[0])
+            pack = _field(card, "pack_code", "") or ""
+            return Query(url=sc.pokemon_cardrush_url(model, pack), match={
+                "model": model, "pack": pack,
+                "variant": _field(card, "variant", "") or "", "game": game})
+        # altri giochi: usa l'URL per-carta memorizzato (OP/YGO)
         url = _field(card, "cardrush_url", "")
         qs = urlparse.parse_qs(urlparse.urlparse(url).query)
         return Query(url=url, match={
             "model":   (qs.get("model_number") or [""])[0].strip(),
             "pack":    (qs.get("pack_code") or [""])[0].strip(),
             "variant": _field(card, "variant", "") or "",
-            "game":    _field(card, "game_code", "") or "",
+            "game":    game,
         })
 
     def fetch(self, query: Query, client) -> str:

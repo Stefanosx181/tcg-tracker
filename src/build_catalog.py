@@ -160,8 +160,9 @@ def harvest(conn, game_code, set_code, set_name, *,
 # catalogo E dei prezzi e' la STESSA lista buyback di CardRush: una sola
 # scansione paginata da' tutte le singole con prezzo+immagine. Cosi' non serve
 # l'elenco curato dall'Excel: il catalogo = tutte le carte che CardRush ricompra.
-POKEMON_LIST_URL = ("https://cardrush.media/pokemon/buying_prices"
-                    "?limit=100&page={page}&sort[key]=amount&sort[order]=desc")
+# URL-lista nella forma COMPLETA della SPA (vedi sc.pokemon_cardrush_url): anti-403.
+def _pokemon_list_url(page):
+    return sc.pokemon_cardrush_url(page=page)
 # placeholder set per le voci CardRush senza pack_code (promo varie, old-back sfusi)
 _POKEMON_OTHER_SET = "その他"
 
@@ -266,7 +267,7 @@ def harvest_pokemon_cardrush(conn, *, client=None, fetch_page=None, max_pages=No
     client = client or sc._default_client()
     if fetch_page is None:
         def fetch_page(page):
-            return client.get(POKEMON_LIST_URL.format(page=page)).text
+            return client.get(_pokemon_list_url(page)).text
 
     raw1 = fetch_page(1)
     items = list(sc.parse_cardrush(raw1))           # puo' sollevare LayoutError
