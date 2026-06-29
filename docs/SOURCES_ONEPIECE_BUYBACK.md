@@ -1,0 +1,63 @@
+# One Piece — fonte buyback comparabile a CardRush (indagine giugno 2026)
+
+> Motivo: su One Piece i buy price di **Yuyu-tei** risultano molto piu' bassi di **CardRush**
+> (fino a ~10x su alcune carte), rendendo il confronto a due fonti poco affidabile. Indagine
+> per trovare una seconda fonte buyback (買取) giapponese davvero comparabile a CardRush.
+
+## Confronto sui prezzi REALI (set OP01, stesse carte)
+
+| Carta | Rarità | CardRush | Yuyu-tei | Toretoku |
+|---|---|---:|---:|---:|
+| OP01-003 Luffy (parallel) | L | ¥50.000 | ¥35.000 | ¥33.500 |
+| OP01-001 Zoro (parallel) | L | ¥30.000 | ¥16.000 | ¥16.400 |
+| OP01-016 Nami (parallel) | R/SR | ¥120.000 | ¥13.000 | ¥14.200 |
+| OP01-002 Law (parallel) | L | ¥11.000 | ¥7.000 | ¥6.100 |
+| OP01-060 Doflamingo (parallel) | L | ¥6.000 | ¥4.000 | ¥3.200 |
+
+(CardRush/Yuyu-tei dal nostro DB; Toretoku fetchato il 2026-06.)
+
+## Due conclusioni che contano
+
+### 1) CardRush è in cima al mercato: nessuno lo "eguaglia" davvero
+Le guide JP (oikura, kaitori-value, uridoki, netoff…) **non indicano un negozio che paghi sempre
+di più**, anzi ripetono "confronta più negozi". CardRush è un negozio enthusiast noto per buy price
+aggressivi: gli altri buyback restano tipicamente **~50-70% di CardRush** sulle carte ben agganciate.
+Quindi "una fonte alta come CardRush" in pratica **non esiste**: che CardRush risulti il migliore è
+NORMALE — ed è proprio il dato di valore del progetto ("CardRush conviene davvero?").
+
+### 2) I "10x" sono soprattutto un BUG DI MATCHING, non la fonte
+Lo stesso numero carta ha **più stampe** con prezzi diversissimi. Esempio OP01-120 シャンクス:
+- CardRush **¥650.000** (刻印なし) · Yuyu-tei **¥200** (una stampa economica) · Toretoku **¥3.000** (SEC pirate-flag)
+
+Sono **tre carte fisiche diverse** con lo stesso numero. Noi agganciamo per `(numero, variante=parallel)`
+e prendiamo il `max` per fonte → fonti diverse possono prendere stampe diverse → confronto falsato.
+È la "disambiguazione fine rarità/stampa" già segnalata in `CLAUDE.md`. **Va risolta a prescindere
+dalla fonte**: è la causa principale dei gap assurdi che si vedono sulle chase card.
+
+## Candidati valutati
+
+| Fonte | Buyback OP? | Accesso | Prezzi vs CardRush | Note |
+|---|---|---|---|---|
+| **CardRush** | ✅ | Next.js JSON (già integrato) | — (riferimento) | Top di mercato |
+| **Toretoku** (`kaitori-toretoku.jp`) | ✅ specialista 買取 | HTML statico, prezzi+codice in chiaro | ~simile a Yuyu-tei sulle mid; **alto sulle chase** (es. Roger OP09-118 ¥538.800) | Distingue le STAMPE (Pirate-Flag/Manga/SP) → aiuta la disambiguazione. ⚠️ niente URL per-set: pagina unica ~300+ carte da filtrare per codice |
+| **Yuyu-tei** (attuale) | ✅ | HTML statico per-set | ~50-70% | Per-set comodo, ma matching grezzo → falsi 10x |
+| **Suruga-ya** | ✅ | HTML, buy price online | tipicamente più basso | Retailer generalista, non enthusiast |
+| **magi** | parziale | marketplace (prezzi di VENDITA) | n/a | Rischio di mescolare market e buyback |
+| **Hareruya/hare2buy** | ❌ | — | — | Copre solo Pokémon |
+| **Dorasuta** | ✅ | **403 anti-bot** | — | Serve browser headless, da evitare |
+
+## Raccomandazione
+
+1. **Priorità: risolvere la disambiguazione delle stampe** (OP01-120 = più carte). Senza questo,
+   *qualsiasi* seconda fonte darà gap assurdi sulle chase card. È il vero fix.
+2. **Sostituire Yuyu-tei con Toretoku** come seconda fonte One Piece: è un buyback specialista, dati
+   in chiaro, distingue le stampe (aiuta il punto 1) e paga alto sulle chase. Costo: un nuovo
+   `ToretokuAdapter`; siccome non ha URL per-set, si scarica la lista OP completa una volta e si
+   filtra per codice (poche richieste).
+3. Aspettativa realistica: CardRush resterà spesso il più alto. Va bene: il confronto serve a
+   mostrare *di quanto* CardRush batte gli altri, non a trovare chi lo pareggia.
+
+## Fonti
+- Toretoku One Piece: https://kaitori-toretoku.jp/onepiece , https://kaitori-toretoku.jp/buypricelist/onepiece
+- CardRush One Piece: https://cardrush.media/onepiece/buying_prices
+- Ranking buyback OP: https://oikura.jp/magazine/tips105/ , https://article.kaitori-value.jp/c-one-piece-card-purchase-recommendation/ , https://uridoki.net/tradingcard/kiji_217634/
