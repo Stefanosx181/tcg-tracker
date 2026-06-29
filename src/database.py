@@ -326,6 +326,25 @@ def export_buylist_json(conn, out_path):
     return len(rows)
 
 
+# Campi di buylist.json EFFETTIVAMENTE usati dalla dashboard (index.html). Con il
+# catalogo Pokemon completo (~10k carte) il file pesava ~8 MB di cui buona parte
+# colonne legacy/duplicate mai lette dalla UI: lo proiettiamo a questi campi per
+# dimezzarlo. NB: i `prices` COMPLETI (con status/outlier) restano in `rows` per i
+# calcoli di movers/indice; qui teniamo per fonte solo price+stock (gli unici letti).
+_BUYLIST_FIELDS = ("card_id", "set_name", "set_order", "game", "full_name", "name_en",
+                   "card_code", "rarity", "image", "pack_code", "model_number",
+                   "trend", "print_ambiguous")
+
+
+def _slim_buylist_row(r):
+    """Copia ALLEGGERITA di una riga buylist per il dump JSON della dashboard.
+    Tiene solo i campi letti dalla UI; per ogni fonte solo {price, stock}."""
+    out = {k: r[k] for k in _BUYLIST_FIELDS if k in r}
+    out["prices"] = {s: {"price": v.get("price"), "stock": v.get("stock")}
+                     for s, v in (r.get("prices") or {}).items()}
+    return out
+
+
 def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None):
     """Genera i JSON che alimentano la dashboard statica (Cloudflare Pages):
 
@@ -479,7 +498,8 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         cid = str(r["card_id"])
         r["trend"] = {src: _trend(pts) for src, pts in series.get(cid, {}).items()}
 
-    json.dump({"generated_at": generated_at, "rows": rows},
+    json.dump({"generated_at": generated_at,
+               "rows": [_slim_buylist_row(r) for r in rows]},
               open(os.path.join(out_dir, "buylist.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 

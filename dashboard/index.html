@@ -184,7 +184,11 @@
 const YEN = n => (n==null||n===0) ? "—" : "¥" + Number(n).toLocaleString("ja-JP");
 const PCT = n => (n==null) ? "—" : n.toFixed(1) + "%";
 const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
-let DATA=[], HIST={}, SETS=[], collapsed=new Set(), chart=null;
+// `expanded` = set APERTI dall'utente. Con il catalogo completo (~10k carte / 351 set)
+// i set sono CHIUSI di default: si costruiscono le tile solo per i set aperti (o in
+// ricerca/filtro), così il DOM resta leggero e la pagina non si blocca al load.
+let DATA=[], HIST={}, SETS=[], expanded=new Set(), chart=null;
+const MAX_TILES=400;   // tetto di tile per render: evita il freeze su set enormi (es. その他)
 let SETIDX={sets:{},global:{}}, idxNormalize=false, idxName=null;
 let activeGame=null;
 
@@ -244,7 +248,7 @@ function buildGameTabs(){
     t.className="gtab"+(g===activeGame?" on":"");
     t.textContent=(GAME_META[g]||{}).name||g;
     t.onclick=()=>{ if(activeGame===g) return;
-      activeGame=g; document.getElementById("setFilter").value=""; collapsed.clear(); refreshForGame(); };
+      activeGame=g; document.getElementById("setFilter").value=""; expanded.clear(); refreshForGame(); };
     el.appendChild(t);
   }
 }
@@ -296,53 +300,74 @@ function priceRow(tag, cls, val, stock, weight){
   return `<div><div class="prow ${stale?'stale':''}"><span class="tag ${cls}">${tag}</span>${v}${w}</div>${bar}</div>`;
 }
 
+function tileEl(c, sources){
+  const tile=document.createElement("div"); tile.className="tile";
+  tile.innerHTML =
+    `<div class="imgbox"><img loading="lazy" src="${imgSrc(c)}" alt="" onerror="this.style.visibility='hidden'"></div>
+     <div class="body">
+       <div class="nm" title="${esc(c.full_name)}">${esc(c.name_en||c.full_name)}</div>
+       <div class="meta"><span class="code">${esc(c.card_code)}</span>${c.rarity?`<span class="rar">${esc(c.rarity)}</span>`:''}</div>
+       <div class="prices">
+         ${sources.map(src=>priceRow(SRC_META[src].tag,SRC_META[src].cls,priceOf(c,src),stockOf(c,src),(c._w||{})[src])).join("")}
+       </div>
+       ${c.print_ambiguous?'<div class="amb" title="Le fonti hanno prezzi molto diversi: probabili STAMPE diverse dello stesso numero. Confronto non affidabile.">⚠ stampa ambigua</div>':''}
+     </div>`;
+  tile.onclick=()=>openChart(c);
+  return tile;
+}
+
 function render(){
   const cont=document.getElementById("sets"); cont.innerHTML="";
   const query=qval(), sf=setFilter();
-  let shown=0;
+  const searching = query.length>0;
+  let shown=0, tiles=0, capped=false;
+  // suggerimento quando tutto è chiuso (catalogo grande, nessun filtro/ricerca)
+  if(!searching && !sf){
+    const hint=document.createElement("div"); hint.className="note"; hint.style.margin="2px 2px 10px";
+    hint.textContent="Clicca un set per vederne le carte, oppure usa la ricerca / il filtro set.";
+    cont.appendChild(hint);
+  }
   for(const s of SETS){
     if(activeGame && s.game!==activeGame) continue;   // solo il gioco attivo
     if(sf && s.name!==sf) continue;
-    const cards = s.cards.filter(c=> !query ||
-      (c.name_en||"").toLowerCase().includes(query) ||
-      (c.full_name||"").toLowerCase().includes(query) ||
-      (c.card_code||"").toLowerCase().includes(query));
-    if(!cards.length) continue;
+    // in ricerca filtra le carte; altrimenti tutte (usate solo se il set è aperto)
+    const cards = searching ? s.cards.filter(c=>
+        (c.name_en||"").toLowerCase().includes(query) ||
+        (c.full_name||"").toLowerCase().includes(query) ||
+        (c.card_code||"").toLowerCase().includes(query)) : s.cards;
+    if(searching && !cards.length) continue;
     shown++;
-    const isCol = collapsed.has(s.name);
+    // un set è APERTO se: espanso a mano, oppure selezionato dal filtro, oppure si sta cercando
+    const isOpen = expanded.has(s.name) || (!!sf && s.name===sf) || searching;
 
     const totHtml = s.sources.map(src=>
       `<div><span class="lbl">${SRC_META[src].name}</span><span class="${SRC_META[src].cls}">${YEN(s.totals[src])}</span></div>`).join("");
     const head=document.createElement("div"); head.className="set-head";
     head.innerHTML =
-      `<span class="caret">${isCol?'▸':'▾'}</span>
+      `<span class="caret">${isOpen?'▾':'▸'}</span>
        <h2>${esc(s.name)}</h2><span class="count">${s.cards.length} carte</span>
        <div class="set-tot">${totHtml}</div>
        <button class="idxbtn" title="Andamento prezzo del set">📈</button>`;
-    head.onclick=()=>{ collapsed.has(s.name)?collapsed.delete(s.name):collapsed.add(s.name); render(); };
+    head.onclick=()=>{ expanded.has(s.name)?expanded.delete(s.name):expanded.add(s.name); render(); };
     const ib=head.querySelector(".idxbtn");
     if(SETIDX.sets[s.name]) ib.onclick=(e)=>{ e.stopPropagation(); openIndex(s.name); };
     else ib.style.display="none";
     cont.appendChild(head);
-    if(isCol) continue;
+    if(!isOpen) continue;
 
     const grid=document.createElement("div"); grid.className="grid";
     for(const c of cards){
-      const tile=document.createElement("div"); tile.className="tile";
-      tile.innerHTML =
-        `<div class="imgbox"><img loading="lazy" src="${imgSrc(c)}" alt="" onerror="this.style.visibility='hidden'"></div>
-         <div class="body">
-           <div class="nm" title="${esc(c.full_name)}">${esc(c.name_en||c.full_name)}</div>
-           <div class="meta"><span class="code">${esc(c.card_code)}</span>${c.rarity?`<span class="rar">${esc(c.rarity)}</span>`:''}</div>
-           <div class="prices">
-             ${s.sources.map(src=>priceRow(SRC_META[src].tag,SRC_META[src].cls,priceOf(c,src),stockOf(c,src),(c._w||{})[src])).join("")}
-           </div>
-           ${c.print_ambiguous?'<div class="amb" title="Le fonti hanno prezzi molto diversi: probabili STAMPE diverse dello stesso numero. Confronto non affidabile.">⚠ stampa ambigua</div>':''}
-         </div>`;
-      tile.onclick=()=>openChart(c);
-      grid.appendChild(tile);
+      if(tiles>=MAX_TILES){ capped=true; break; }
+      grid.appendChild(tileEl(c, s.sources));
+      tiles++;
     }
     cont.appendChild(grid);
+    if(capped) break;
+  }
+  if(capped){
+    const note=document.createElement("div"); note.className="note"; note.style.margin="14px 2px";
+    note.textContent=`Mostrate le prime ${MAX_TILES} carte. Restringi con la ricerca o apri un singolo set.`;
+    cont.appendChild(note);
   }
   document.getElementById("empty").hidden = shown>0;
 }
