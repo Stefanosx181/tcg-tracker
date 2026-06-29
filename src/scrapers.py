@@ -159,6 +159,26 @@ def parse_cardrush(text: str) -> list:
     raise LayoutError("cardrush: pageProps senza 'buyingPrices' (layout cambiato?)")
 
 
+def cardrush_last_page(text: str):
+    """Numero di pagine totali della lista buyback CardRush (pageProps.lastPage).
+
+    Serve all'harvester del catalogo Pokemon (build_catalog) per sapere quante
+    pagine paginare. Ritorna int oppure None se non e' una pagina-lista Next.js
+    riconoscibile (in tal caso il chiamante puo' ripiegare su una pagina sola)."""
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', text or "", re.S)
+    if not m:
+        return None
+    try:
+        page = json.loads(m.group(1)).get("props", {}).get("pageProps", {})
+    except ValueError:
+        return None
+    lp = page.get("lastPage")
+    try:
+        return int(lp) if lp is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def pick_cardrush(items: list, want_model: str = "", want_pack: str = ""):
     """Da una lista di item cardrush sceglie il buying price della carta STANDARD.
 

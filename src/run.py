@@ -18,12 +18,15 @@ Per compilarlo in .exe vedere build/build_exe.bat
 """
 import os
 import sys
+import time
+import random
 import argparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 import database as db
 import scrapers as sc
 import adapters as ad
+import build_catalog as bc
 
 HERE = os.path.dirname(__file__)
 DATA_DIR = os.path.join(HERE, "..", "dashboard", "data")
@@ -38,6 +41,19 @@ def main():
     ap.add_argument("--limit", type=int, help="max carte (test)")
     ap.add_argument("--only", choices=sources, help="una sola fonte")
     ap.add_argument("--sleep", type=float, default=1.0, help="pausa secondi tra richieste")
+    ap.add_argument("--harvest-pokemon", action="store_true",
+                    help="cataloga TUTTE le singole Pokemon da CardRush "
+                         "(catalogo + prezzi CardRush in una passata) ed esci")
+    ap.add_argument("--images", action="store_true",
+                    help="con --harvest-pokemon: scarica le immagini in locale "
+                         "(default: salva solo l'URL remoto CDN, niente git bloat)")
+    ap.add_argument("--batch", type=int,
+                    help="processa solo N carte scelte per STALENESS della fonte "
+                         "(--only): sharding notturno di Hareruya su piu' run")
+    ap.add_argument("--jitter", type=float, default=0.0,
+                    help="secondi casuali extra [0,jitter] tra una carta e l'altra (credibilita')")
+    ap.add_argument("--set-gap", type=float, default=0.0,
+                    help="pausa casuale extra [0,set_gap] al cambio di set")
     args = ap.parse_args()
 
     if not os.path.exists(db.DB_PATH):
@@ -51,17 +67,48 @@ def main():
         conn.execute("INSERT OR IGNORE INTO tcg_source (source_code, display_name) VALUES (?,?)",
                      (a.source_code, a.display_name))
     conn.commit()
-    cards = db.fetch_cards(conn)
-    if args.set:
-        cards = [c for c in cards if c["pack_code"].upper() == args.set.upper()]
-    if args.game:
-        cards = [c for c in cards if c["game_code"].lower() == args.game.lower()]
-    if args.limit:
-        cards = cards[: args.limit]
 
     # Un solo client HTTP condiviso: centralizza timeout, retry+backoff,
     # User-Agent e rate-limiting (la pausa tra richieste e' --sleep).
     client = sc.HttpClient(rate_limit=args.sleep)
+
+    # --- HARVEST Pokemon: catalogo + prezzi CardRush in una sola passata -------
+    # La lista buyback CardRush e' fonte di catalogo E di prezzo: una scansione
+    # paginata da' tutte le singole con prezzo+immagine. Sostituisce le fetch
+    # per-carta su CardRush (Hareruya resta per-carta, shardato con --batch).
+    if args.harvest_pokemon:
+        images_dir = os.path.join(HERE, "..", "dashboard", "images") if args.images else None
+        print("Harvest CardRush Pokemon (catalogo + prezzi)...")
+        stats = bc.harvest_pokemon_cardrush(
+            conn, client=client, images_dir=images_dir,
+            progress=lambda p, last: (p % 10 == 0 or p == last)
+            and print(f"  pagina {p}/{last}"))
+        n = db.export_web(conn, DATA_DIR)
+        db.export_buylist_json(conn, LEGACY_JSON)
+        conn.close()
+        print(f"\nCatalogo: {stats['catalog']} singole "
+              f"({stats['inserted']} nuove, {stats['updated']} aggiornate), "
+              f"prezzi CR {stats['priced']}, immagini {stats['images']}.")
+        print(f"{n} righe esportate in dashboard/data/.")
+        return
+
+    # --- selezione carte da scrapare ------------------------------------------
+    # --batch + --only -> selezione per STALENESS della fonte (sharding notturno);
+    # altrimenti elenco completo con i filtri classici.
+    if args.batch and args.only:
+        cards = db.fetch_cards_stale(conn, args.only, args.game, args.batch)
+        if args.set:
+            cards = [c for c in cards if c["pack_code"].upper() == args.set.upper()]
+    else:
+        cards = db.fetch_cards(conn)
+        if args.set:
+            cards = [c for c in cards if c["pack_code"].upper() == args.set.upper()]
+        if args.game:
+            cards = [c for c in cards if c["game_code"].lower() == args.game.lower()]
+        if args.batch:
+            cards = cards[: args.batch]
+        if args.limit:
+            cards = cards[: args.limit]
 
     # Adapter candidati (filtrati da --only). La fonte giusta per ogni carta si
     # sceglie poi per GIOCO (a.supports): es. Hareruya solo Pokémon, Yuyu-tei OP.
@@ -76,8 +123,13 @@ def main():
     # "carta non trovata", servono per un allarme piu' fine (vedi sotto).
     layout_err = {s: 0 for s in all_sources}
 
+    prev_pack = None
     for i, c in enumerate(cards, 1):
-        print(f"[{i}/{len(cards)}] {c['card_code']}  ({c['pack_code']})")
+        # pacing credibile: pausa piu' lunga quando cambia il set (traffico "umano")
+        if args.set_gap and prev_pack is not None and c["pack_code"] != prev_pack:
+            time.sleep(random.uniform(0, args.set_gap))
+        prev_pack = c["pack_code"]
+        print(f"[{i}/{len(cards)}] {c['card_code'] or c['number']}  ({c['pack_code']})")
         for a in candidates:
             if not a.supports(c["game_code"]):
                 continue
@@ -94,6 +146,9 @@ def main():
             tried[src] += 1
             found[src] += price is not None
             print(f"    {src} : {price if price is not None else '—'}")
+        # jitter tra una carta e l'altra (oltre al rate-limit fisso del client)
+        if args.jitter:
+            time.sleep(random.uniform(0, args.jitter))
 
     n = db.export_web(conn, DATA_DIR)
     db.export_buylist_json(conn, LEGACY_JSON)   # retro-compatibilita' standalone
@@ -112,12 +167,17 @@ def main():
     # In entrambi i casi usciamo con errore: in GitHub Actions il workflow
     # fallisce e arriva la notifica.
     LAYOUT_FRACTION = 0.30   # >30% delle pagine di una fonte con layout rotto
+    # Soglia minima di tentativi per il segnale "0 prezzi": col catalogo COMPLETO
+    # un lotto Hareruya (--batch) puo' contenere molte carte che Hareruya non
+    # ricompra affatto -> 0 prezzi NON significa rottura. Con un campione ampio,
+    # invece, 0/molti = quasi certamente blocco IP / layout. Sotto soglia non allarma.
+    ZERO_MIN_TRIED = 30
     broken = []
     for s in tried:
         if not tried[s]:
             continue
-        if found[s] == 0:
-            broken.append(f"{s} (0 prezzi)")
+        if found[s] == 0 and tried[s] >= ZERO_MIN_TRIED:
+            broken.append(f"{s} (0 prezzi su {tried[s]})")
         elif layout_err[s] >= max(3, LAYOUT_FRACTION * tried[s]):
             broken.append(f"{s} ({layout_err[s]}/{tried[s]} layout cambiato)")
     if broken:

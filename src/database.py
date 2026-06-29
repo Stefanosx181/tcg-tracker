@@ -82,6 +82,43 @@ def fetch_cards(conn):
     return cur.fetchall()
 
 
+def fetch_cards_stale(conn, source, game=None, limit=None):
+    """Come fetch_cards, ma ORDINATE per STALENESS rispetto a una fonte:
+    prima le carte mai interrogate da `source`, poi quelle col prezzo piu' VECCHIO.
+
+    Serve allo sharding di Hareruya (run.py --batch): piu' run notturni scaglionati
+    chiamano questa con un limite e si dividono il catalogo SENZA sovrapporsi — una
+    volta che una carta e' stata aggiornata, scende in fondo alla coda. Robusto a
+    interruzioni: il run successivo riprende dalle piu' vecchie.
+    """
+    ph = "?" if isinstance(conn, sqlite3.Connection) else "%s"
+    sql = f"""SELECT c.id               AS id,
+                     g.game_code         AS game_code,
+                     s.set_code          AS pack_code,
+                     c.legacy_card_code  AS card_code,
+                     c.legacy_model_number AS model_number,
+                     c.number            AS number,
+                     c.variant           AS variant,
+                     c.name              AS full_name,
+                     c.cardrush_url      AS cardrush_url,
+                     c.hareruya_url      AS hareruya_url,
+                     (SELECT MAX(p.scraped_at) FROM tcg_price p
+                       WHERE p.card_id=c.id AND p.source_code={ph}) AS last_seen
+              FROM tcg_card c
+              JOIN tcg_set  s ON s.id = c.set_id
+              JOIN tcg_game g ON g.game_code = s.game_code"""
+    params = [source]
+    if game:
+        sql += f" WHERE g.game_code={ph}"
+        params.append(game)
+    # NULL (mai vista) prima, poi scraped_at crescente (piu' vecchia prima)
+    sql += " ORDER BY (last_seen IS NULL) DESC, last_seen ASC, c.id"
+    if limit:
+        sql += f" LIMIT {ph}"
+        params.append(limit)
+    return conn.cursor().execute(sql, params).fetchall()
+
+
 def _parse_dt(value):
     """'YYYY-MM-DD HH:MM:SS' (o datetime) -> datetime. None se non parsabile."""
     if isinstance(value, dt.datetime):

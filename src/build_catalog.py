@@ -153,6 +153,166 @@ def harvest(conn, game_code, set_code, set_name, *,
     return inserted, skipped, len(items), images
 
 
+# ----------------------------------------------------------------------
+# POKEMON: catalogo COMPLETO dalla lista buyback CardRush (paginata)
+# ----------------------------------------------------------------------
+# A differenza di OP/YGO (catalogo da Yuyu-tei), per i Pokemon la fonte del
+# catalogo E dei prezzi e' la STESSA lista buyback di CardRush: una sola
+# scansione paginata da' tutte le singole con prezzo+immagine. Cosi' non serve
+# l'elenco curato dall'Excel: il catalogo = tutte le carte che CardRush ricompra.
+POKEMON_LIST_URL = ("https://cardrush.media/pokemon/buying_prices"
+                    "?limit=100&page={page}&sort[key]=amount&sort[order]=desc")
+# placeholder set per le voci CardRush senza pack_code (promo varie, old-back sfusi)
+_POKEMON_OTHER_SET = "その他"
+
+
+def _pokemon_catalog_from_items(items):
+    """PURA (no rete/DB): lista di item buyingPrices CardRush -> dict
+    {(set_code, number): scelta}. Tiene SOLO le singole (product_category シングル).
+
+    Per ogni (set, number) sceglie la STAMPA STANDARD (extra_difference vuoto) col
+    prezzo piu' alto; se non esiste alcuna standard ripiega sulla variante col prezzo
+    piu' alto (cosi' la carta esiste comunque, come fa pick_cardrush). pack_code vuoto
+    -> set placeholder その他. Il valore scelto porta number/name/rarity/price/image."""
+    best = {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        if it.get("product_category") != "シングル":
+            continue
+        number = str(it.get("model_number") or "").strip()
+        if not number:
+            continue
+        set_code = (it.get("pack_code") or "").strip() or _POKEMON_OTHER_SET
+        try:
+            price = int(float(it["amount"])) if it.get("amount") is not None else None
+        except (TypeError, ValueError):
+            price = None
+        rarity = (it.get("rarity") or "").strip()
+        if rarity == "-":
+            rarity = ""
+        op = it.get("ocha_product")
+        image = op.get("image_source") if isinstance(op, dict) else None
+        is_std = not (it.get("extra_difference") or "").strip()
+        cand = {"set_code": set_code, "set_name": (it.get("pack_name") or "").strip(),
+                "number": number, "name": (it.get("name") or "").strip(),
+                "rarity": rarity, "price": price, "image": image, "is_std": is_std}
+        cur = best.get((set_code, number))
+        # preferisci la standard; a parita' di classe il prezzo piu' alto
+        score = (cand["is_std"], cand["price"] or 0)
+        if cur is None or score > (cur["is_std"], cur["price"] or 0):
+            best[(set_code, number)] = cand
+    return best
+
+
+def _ensure_pokemon_set(conn, set_code, set_name):
+    """set_id del set Pokemon (crealo se manca, APPENDENDO il display_order dopo
+    gli esistenti). NON sovrascrive il set_name dei set gia' presenti (i nomi EN
+    curati restano). Ritorna l'id."""
+    conn.execute("INSERT OR IGNORE INTO tcg_game (game_code, display_name) VALUES ('pokemon', ?)",
+                 (GAME_NAME["pokemon"],))
+    row = conn.execute("SELECT id FROM tcg_set WHERE game_code='pokemon' AND set_code=?",
+                       (set_code,)).fetchone()
+    if row:
+        return row[0]
+    order = conn.execute(
+        "SELECT COALESCE(MAX(display_order), 0) + 1 FROM tcg_set WHERE game_code='pokemon'"
+    ).fetchone()[0]
+    conn.execute("""INSERT INTO tcg_set (game_code, set_code, set_name, display_order)
+                    VALUES ('pokemon', ?, ?, ?)""", (set_code, set_name or set_code, order))
+    return conn.execute("SELECT id FROM tcg_set WHERE game_code='pokemon' AND set_code=?",
+                        (set_code,)).fetchone()[0]
+
+
+def _apply_image(conn, cid, card_image, *, images_dir, number, client):
+    """Aggancia l'immagine alla carta cid secondo la policy LAZY:
+      - images_dir dato -> scarica in locale, image_url = path 'images/...';
+      - altrimenti       -> salva l'URL remoto CDN, SENZA pero' sovrascrivere un
+                            eventuale path locale 'images/%' gia' presente.
+    Ritorna 1 se ha (ri)scritto image_url, 0 altrimenti."""
+    if not card_image:
+        return 0
+    if images_dir:
+        stored = _download_image(card_image, images_dir, number, "", client)
+        if stored:
+            conn.execute("UPDATE tcg_card SET image_url=? WHERE id=?", (stored, cid))
+            return 1
+        return 0
+    cur = conn.execute("""UPDATE tcg_card SET image_url=?
+            WHERE id=? AND (image_url IS NULL OR image_url NOT LIKE 'images/%')""",
+            (card_image, cid))
+    return cur.rowcount
+
+
+def harvest_pokemon_cardrush(conn, *, client=None, fetch_page=None, max_pages=None,
+                             images_dir=None, save_prices=True, run_date=None,
+                             progress=None):
+    """Cataloga TUTTE le singole Pokemon dalla lista buyback CardRush e ne salva
+    il prezzo nella STESSA passata. Idempotente e NON distruttivo:
+
+      - identita' carta = (set, number, variant='') -> UPSERT con controllo
+        esplicito (no INSERT OR IGNORE): le carte gia' presenti (es. le 263
+        storiche) mantengono id e STORICO, si aggiornano solo nome/rarita'/immagine;
+      - prezzo CardRush della carta (stampa standard) salvato via db.save_price
+        (confirmed); cosi' una sola scansione = catalogo + prezzi CR di tutti i set;
+      - immagini LAZY (vedi _apply_image): URL remoto di default, locale se images_dir.
+
+    fetch_page(page)->html e' iniettabile per i test (offline). max_pages limita le
+    pagine (test/debug). Ritorna un dict di conteggi."""
+    db.ensure_image_column(conn)
+    db.ensure_intelligence_columns(conn)
+    # la fonte 'cardrush' deve esistere (FK di tcg_price): rende l'harvest autonomo
+    conn.execute("INSERT OR IGNORE INTO tcg_source (source_code, display_name) VALUES ('cardrush','CardRush')")
+    client = client or sc._default_client()
+    if fetch_page is None:
+        def fetch_page(page):
+            return client.get(POKEMON_LIST_URL.format(page=page)).text
+
+    raw1 = fetch_page(1)
+    items = list(sc.parse_cardrush(raw1))           # puo' sollevare LayoutError
+    last = sc.cardrush_last_page(raw1) or 1
+    if max_pages:
+        last = min(last, max_pages)
+    for p in range(2, last + 1):
+        items.extend(sc.parse_cardrush(fetch_page(p)))
+        if progress:
+            progress(p, last)
+
+    catalog = _pokemon_catalog_from_items(items)
+    inserted = updated = images = priced = 0
+    for (set_code, number), c in catalog.items():
+        set_id = _ensure_pokemon_set(conn, set_code, c["set_name"])
+        row = conn.execute("""SELECT id FROM tcg_card
+                              WHERE set_id=? AND number=? AND variant=''""",
+                           (set_id, number)).fetchone()
+        if row:
+            cid = row[0]
+            conn.execute("UPDATE tcg_card SET name=?, rarity=? WHERE id=?",
+                         (c["name"] or None, c["rarity"], cid))
+            updated += 1
+        else:
+            conn.execute("""INSERT INTO tcg_card
+                  (set_id, number, language, rarity, variant, name, name_en,
+                   cardrush_url, legacy_model_number)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                (set_id, number, "JP", c["rarity"], "", c["name"] or None, None,
+                 _cardrush_url("pokemon", number.split("/")[0]), number.split("/")[0]))
+            cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            inserted += 1
+        # nome-file locale qualificato col set (schema legacy {pack}_{model}): i
+        # prefissi-numero NON sono unici tra set diversi -> evita collisioni quando
+        # si scarica in locale (per l'URL remoto, default, e' irrilevante).
+        images += _apply_image(conn, cid, c["image"], images_dir=images_dir,
+                               number=f"{set_code}_{number.split('/')[0]}", client=client)
+        if save_prices:
+            db.save_price(conn, cid, "cardrush", c["price"],
+                          in_stock=c["price"] is not None, run_date=run_date)
+            priced += 1
+    conn.commit()
+    return {"pages": last, "listings": len(items), "catalog": len(catalog),
+            "inserted": inserted, "updated": updated, "images": images, "priced": priced}
+
+
 # Sigle corte per le rarita' verbose (soprattutto Yu-Gi-Oh in giapponese), cosi'
 # il badge nella UI resta leggibile. Le rarita' One Piece sono gia' corte (L, SR/P...).
 _RARITY_SHORT = {

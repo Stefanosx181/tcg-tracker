@@ -44,23 +44,31 @@ ufficiale che loro si aspettano di vedere.
 ## Architettura e flusso dati
 
 ```
-Excel (seed) → db/ SQL → tcg_tracker.db (SQLite)
+CATALOGO Pokémon = lista buyback CardRush (HARVEST paginato), NON piu' l'Excel:
+  src/build_catalog.harvest_pokemon_cardrush → tutte le singole + prezzi CR + immagini
+CATALOGO OP/YGO  = pagina-set Yuyu-tei (build_catalog.harvest, set per set)
+                         ↓
+   tcg_tracker.db (SQLite)
    → src/scrapers.py  (livello basso: HttpClient + parse_cardrush/hareruya/yuyutei + LayoutError)
    → src/adapters.py  (SourceAdapter per fonte: build_query/fetch/parse→Offer; registry ADAPTERS;
                        routing per GIOCO via a.supports(game): Pokémon=cardrush+hareruya,
                        One Piece=cardrush+TORETOKU, Yu-Gi-Oh=cardrush+yuyutei)
-   → src/run.py       (orchestratore: per ogni carta cicla gli adapter del suo gioco; --game/--set)
-   → src/database.py  (accesso DB, save_price con carry-forward, export_web → JSON multi-fonte)
+   → src/run.py       (orchestratore: --harvest-pokemon = catalogo+prezzi CR in 1 passata;
+                       altrimenti per ogni carta cicla gli adapter del suo gioco; Hareruya
+                       per-carta shardato con --batch (staleness) + jitter/set-gap)
+   → src/database.py  (accesso DB, save_price con carry-forward, fetch_cards_stale, export_web)
    → dashboard/data/*.json (buylist.json, history.json, setindex.json, movers.json)
    → dashboard/ (statica, Cloudflare Pages)
-GitHub Actions (.github/workflows/scrape.yml, cron settimanale) → commit DB+JSON
+GitHub Actions (.github/workflows/scrape.yml, cron NOTTURNO multi-trigger: 1o trigger = harvest
+   CR completo + OP/YGO; trigger seguenti = lotti Hareruya per staleness) → commit DB+JSON
 Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 ```
 
 ## File chiave
 - `src/scrapers.py` — livello basso testabile: `fetch` (`HttpClient`: timeout, retry+backoff,
   User-Agent, rate-limit) + `parse_cardrush`/`parse_hareruya` (HTML/JSON grezzo → lista, offline)
-  + helper. `LayoutError` = struttura pagina cambiata (≠ "0 risultati"). Selettori in `HARERUYA_SELECTORS`.
+  + `cardrush_last_page` (pageProps.lastPage, per paginare l'harvest Pokémon) + helper.
+  `LayoutError` = struttura pagina cambiata (≠ "0 risultati"). Selettori in `HARERUYA_SELECTORS`.
 - `src/adapters.py` — interfaccia `SourceAdapter` (`build_query`/`fetch`/`parse`→`Offer`, +
   `select` variant-aware/`scrape` condivisi, `supports(game)`) e gli adapter `CardRushAdapter`
   (tutti i giochi), `HareruyaAdapter` (solo Pokémon), `ToretokuAdapter` (PREZZI One Piece,
@@ -69,7 +77,9 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   per-set `/buy/{opc|ygo}/s/{set}` con cache). Registry `ADAPTERS`. Aggiungere una fonte = aggiungere
   un adapter qui (vedi `docs/ADAPTERS.md`).
 - `src/database.py` — `save_price` (status esplicito `confirmed/carried/absent`, carry-forward
-  LIMITATO nel tempo `max_carry_days`, flag `is_outlier` vs mediana storica), `export_web` (JSON
+  LIMITATO nel tempo `max_carry_days`, flag `is_outlier` vs mediana storica), `fetch_cards_stale`
+  (carte ordinate per STALENESS di una fonte: mai-viste prima, poi piu' vecchie → sharding
+  notturno di Hareruya che si auto-coordina su piu' run), `export_web` (JSON
   multi-fonte: ogni riga buylist ha `prices`{source:{price,comm,stock,status,outlier}} + `game`
   + `trend`{source:{d7,d30,d90}}, `best_*` su tutte le fonti; indice/trend per fonte dinamica).
   `setindex.json`: indice UFFICIALE (`sets`/`global`, pesi fissi alla data base = foglio Charts)
@@ -80,15 +90,25 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   (aggancio anti-outlier/stale 3.1 → niente falsi segnali). Soglie `move_pct`/`spread_pct`
   (default 15/20%) parametri di `export_web`. `dispatch_alerts(payload, hook)` = aggancio per
   notifiche FUTURE (no-op di default; `export_web(..., alert_hook=)`).
-- `src/build_catalog.py` — HARVESTER del catalogo OP/YGO: dalla pagina-set Yuyu-tei
-  (`/buy/{opc|ygo}/s/{set}`, che elenca tutte le carte) costruisce le righe `tcg_card` nel DB v2
-  (identita' canonica `(set, number, variant)`, standard vs `parallel` dal nome, URL CardRush
-  per gioco; idempotente). Uso: `python src/build_catalog.py onepiece OP01 "ROMANCE DAWN"`
-  (`--html` per cataloghare offline da una fixture). Test: `tests/test_build_catalog.py`.
+- `src/build_catalog.py` — HARVESTER dei cataloghi. **Pokémon**: `harvest_pokemon_cardrush`
+  pagina la lista buyback CardRush (`/pokemon/buying_prices`, ~120 pagine), tiene SOLO le singole
+  (`product_category=シングル`), dedup per `(set, number)` sulla stampa standard, UPSERT su
+  `(set, number, variant='')` (controllo esplicito → preserva id+storico delle carte gia' note,
+  niente duplicati anche se cambia la rarita') e salva il prezzo CR nella STESSA passata; immagini
+  LAZY (URL CDN remoto di default, locale solo con `images_dir`). **OP/YGO**: `harvest` dalla
+  pagina-set Yuyu-tei (`/buy/{opc|ygo}/s/{set}`), identita' `(set, number, variant)`, standard vs
+  `parallel` dal nome. Idempotenti. Uso: `python src/run.py --harvest-pokemon`;
+  `python src/build_catalog.py onepiece OP01 "ROMANCE DAWN"` (`--html` = offline da fixture).
+  Test: `tests/test_build_catalog.py`.
 - `db/seed_onepiece_sample.sql`, `db/seed_yugioh_sample.sql` — seed di PROVA One Piece (OP01,
   standard + variante parallel) e Yu-Gi-Oh (QCCU-JP002), per il sandbox `tcg_tracker.backup.db`
-- `src/run.py` — eseguibile principale, flag `--set --limit --only --sleep`; cicla sul registry
-  `ADAPTERS` (no fonti hard-coded), `HttpClient` condiviso, conta i `LayoutError` per l'allarme per-fonte.
+- `src/run.py` — eseguibile principale. `--harvest-pokemon` (+`--images`) = catalogo Pokémon
+  completo + prezzi CR in una passata, poi export ed esci. Altrimenti scraping per-carta sul
+  registry `ADAPTERS`: `--set --game --limit --only --sleep`, e per lo sharding notturno di
+  Hareruya `--batch N` (con `--only` sceglie le N carte piu' STALE per quella fonte) +
+  `--jitter`/`--set-gap` (pausa casuale tra carte / al cambio set = traffico credibile). `HttpClient`
+  condiviso; conta i `LayoutError` per l'allarme per-fonte (il segnale "0 prezzi" scatta solo
+  con ≥30 tentativi → un lotto di carte che Hareruya non compra non e' un falso allarme).
 - `src/init_db.py` — crea/aggiorna il DB (idempotente): bootstrap v1 dal seed → migra a v2;
   un DB v1 esistente viene aggiornato a v2 in-place (storico preservato). `--force` = da zero.
 - `db/schema_sqlite.sql` — **schema corrente v2 (multi-gioco, game-agnostic)**; viste
@@ -110,10 +130,11 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 ## Comandi
 ```bash
 python src/init_db.py            # crea/aggiorna DB v1->v2 (storico preservato)
+python src/run.py --harvest-pokemon          # catalogo Pokémon COMPLETO da CardRush + prezzi CR
+python src/run.py --game pokemon --only hareruya --batch 2500 --jitter 1.5 --set-gap 8  # lotto HR
 python src/run.py --limit 3      # test scraping su 3 carte
 python src/run.py --set S12A     # un solo set
 python src/run.py --game onepiece  # solo One Piece (prezzi: cardrush+toretoku)
-python src/run.py --only cardrush
 python db/migrate_001_multigame.py tcg_tracker.backup.db  # migrazione su un file specifico
 pytest                           # test scraper+migrazione+adapter offline (usa tests/fixtures/)
 ```
@@ -144,10 +165,13 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 - Dove esistono **API/dataset ufficiali**, preferiscili allo scraping (più stabili, meno ToS).
 
 ## Trappole note (già individuate — non reintrodurle)
-- **Catalogo OP/YGO PARZIALE**: il DB reale ha dati VERI per Pokémon (263, 32 set) + One Piece
-  `OP01` (43 carte) + Yu-Gi-Oh `QCCU` (200 carte), scrapati il 2026-06-28. Mancano gli ALTRI set
-  OP/YGO: il catalogo va esteso con `build_catalog.py` set per set. `name_en` per OP/YGO è null
-  (solo nome JP): la UI mostra il nome giapponese finché non si aggiunge la traduzione.
+- **Catalogo Pokémon COMPLETO, OP/YGO PARZIALE**: il DB reale (2026-06-29) ha l'INTERO catalogo
+  buyback Pokémon di CardRush — **10.191 singole / 351 set** (incl. il bucket `その他` ~1.889 per
+  promo/old-back/sfusi senza pack_code) — via `run.py --harvest-pokemon`. I prezzi CardRush sono
+  freschi per tutte; **Hareruya parte solo dalle 263 storiche** e si riempie col cron notturno per
+  staleness (qualche notte per coprire tutto). OP/YGO restano PARZIALI: solo `OP01` (43) + `QCCU`
+  (200); estendere con `build_catalog.py` set per set. `name_en` Pokémon/OP/YGO assente per le carte
+  nuove (solo nome JP): la UI mostra il nome giapponese finché non si traduce.
 - **Indice globale mescola i giochi**: il bottone "Andamento" usa `setindex.global` calcolato
   su TUTTI i set (ora anche OP/YGO): aggregato poco sensato cross-gioco. Da rendere per-gioco.
   (I 📈 per-set restano corretti.)
@@ -165,8 +189,16 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
   arte; stampe esclusive di una fonte → single-fonte. Più filtro rumore + confirmed-only (solo OP)
   + GUARD `print_ambiguous` (>4x) come backstop. OP01: 20 coppie, mediana 1.53, max 2.7. Vedi
   `docs/SOURCES_BUYBACK_OP_YGO.md`. (Catalogo OP = solo stampe a 2 fonti + single-fonte ≥¥3.000.)
-- **DB committato a ogni run**: gonfia la history git nel tempo.
-- **Casing incoerente** nei dati: `S12a` vs `SV1V`; `full_name` mescola JP/EN e ripete il set.
+- **DB committato a ogni run + catalogo grande**: con ~10k carte Pokémon ogni notte si
+  aggiungono ~10k righe prezzo CR + i lotti Hareruya → `tcg_tracker.db` cresce in fretta e gonfia
+  la history git. Da affrontare in Fase 5 (es. salvare solo i prezzi CAMBIATI, o DB fuori da git).
+- **Rumore nel catalogo Pokémon completo**: 351 "set" includono micro-bucket di CardRush
+  (codici di 1 carattere, `その他`, voci `model_number` non-carta come `旧裏`); alcune carte hanno
+  rarità `-`/vuota. È il prezzo di "tutte le carte"; eventuale pulizia = filtro AGGIUNTIVO, non
+  rimuovere righe (lo storico non si cancella).
+- **Casing dei set**: i set Pokémon usano il casing ESATTO di CardRush (`S12a`, `M1L`, `sm12a`…);
+  l'harvest fa match esatto su `set_code` (nessuna collisione riscontrata col catalogo curato).
+  `full_name` mescola ancora JP/EN e a volte ripete il set.
 
 ## Roadmap (riferimento)
 Il piano completo dei prompt per fase è in `PROMPT_PLAYBOOK_CLAUDECODE.md`. Ordine rigido,
@@ -216,8 +248,17 @@ con stato (aggiornalo a fine fase):
       IMMAGINI OP/YGO: scaricate da Yuyu-tei in `dashboard/images/` (43 OP + 200 YGO = 243),
       colonna `tcg_card.image_url` + campo `image` nel buylist; la UI usa `c.image` se presente,
       altrimenti il path legacy `.webp` (Pokémon). Harvest con `build_catalog.py … --images`.
-      ⚠️ Resta: tradurre i nomi OP/YGO (ora solo JP), indice "Andamento" per-gioco, consumo di
-      `movers.json`.
-- [ ] Fase 5 — scala / ops
+      ⚠️ Resta: tradurre i nomi OP/YGO+Pokémon nuovi (ora solo JP), indice "Andamento" per-gioco,
+      consumo di `movers.json`.
+- [~] Fase 5 — scala / ops (in corso)
+      ✅ CATALOGO POKÉMON COMPLETO (2026-06-29): `harvest_pokemon_cardrush` prende TUTTE le singole
+      buyback da CardRush (10.191 carte / 351 set) — niente più sottoinsieme curato dall'Excel.
+      Catalogo+prezzi CR in UNA scansione paginata; immagini LAZY (URL CDN remoto, no git bloat);
+      le 263 storiche preservate (UPSERT id-stable, storico intatto, 0 duplicati). Cron NOTTURNO
+      multi-trigger (`scrape.yml`): 1° trigger = harvest CR completo + OP/YGO; trigger seguenti =
+      lotti Hareruya per STALENESS (`fetch_cards_stale` + `--batch`), traffico spalmato/jitter per
+      restare sotto il limite di 6h e credibile. Test offline in `tests/test_build_catalog.py`.
+      ⚠️ Resta: DB che cresce in fretta (vedi Trappole → prezzi solo-se-cambiati / DB fuori git);
+      pulizia rumore catalogo (`その他`/micro-set); estendere idea catalogo-completo a OP/YGO.
 
 Non aggiungere giochi prima dello schema multi-gioco (Fase 1).
