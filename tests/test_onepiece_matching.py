@@ -86,7 +86,6 @@ def test_confirmed_only_drops_carried_onepiece(tmp_path):
     db.save_price(conn, 2, "toretoku", None,  run_date="2026-06-28 00:00:00")  # -> carried
     out = str(tmp_path / "data")
     db.export_web(conn, out)
-    # toretoku carried viene scartato (confirmed-only OP) -> resta solo cardrush ->
-    # carta a FONTE SINGOLA -> ESCLUSA dalla buylist (filtro comparabilita').
-    # (se il carried NON fosse scartato, avrebbe 2 fonti e comparirebbe.)
-    assert "OP01-003" not in _rows(out)
+    r = _rows(out)["OP01-003"]
+    assert "toretoku" not in (r.get("prices") or {})            # carried -> non mostrato
+    assert (r.get("prices") or {}).get("cardrush", {}).get("price") == 50000

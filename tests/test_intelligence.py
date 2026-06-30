@@ -181,8 +181,6 @@ def test_per_card_trend_7_30_90(tmp_path):
            ("2026-04-03", 100), ("2026-04-10", 120)]
     for day, p in pts:
         db.save_price(conn, 1, "cardrush", p, run_date=f"{day} 00:00:00")
-    # seconda fonte (la carta deve essere COMPARABILE per comparire in buylist)
-    db.save_price(conn, 1, "hareruya", 110, run_date="2026-04-10 00:00:00")
 
     out = str(tmp_path / "data")
     db.export_web(conn, out)
@@ -197,26 +195,6 @@ def test_per_card_trend_7_30_90(tmp_path):
 # --------------------------------------------------------------------------
 # 5) ensure_intelligence_columns idempotente
 # --------------------------------------------------------------------------
-def test_buylist_only_comparable_two_source_cards(tmp_path):
-    # La buylist mostra SOLO carte con prezzo da >=2 fonti (confronto utile).
-    # Carte a fonte singola -> escluse. L'indice ufficiale NON e' filtrato.
-    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A"), (2, "B"), (3, "C")])
-    db.save_price(conn, 1, "cardrush", 100, run_date="2026-06-28 00:00:00")
-    db.save_price(conn, 1, "hareruya", 120, run_date="2026-06-28 00:00:00")   # 2 fonti
-    db.save_price(conn, 2, "cardrush", 100, run_date="2026-06-28 00:00:00")   # solo CR
-    db.save_price(conn, 3, "hareruya", 80,  run_date="2026-06-28 00:00:00")   # solo HR
-    out = str(tmp_path / "data")
-    db.export_web(conn, out)
-    buy = json.load(open(os.path.join(out, "buylist.json"), encoding="utf-8"))
-    assert {r["card_id"] for r in buy["rows"]} == {1}
-    # carry-forward conta come "esiste": una fonte carried (prezzo>0) + l'altra confermata
-    db.save_price(conn, 1, "hareruya", None, run_date="2026-07-05 00:00:00")  # -> carried (>0)
-    db.save_price(conn, 1, "cardrush", 100, run_date="2026-07-05 00:00:00")
-    db.export_web(conn, out)
-    buy2 = json.load(open(os.path.join(out, "buylist.json"), encoding="utf-8"))
-    assert 1 in {r["card_id"] for r in buy2["rows"]}
-
-
 def test_ensure_columns_idempotent(tmp_path):
     conn = _make_v2(str(tmp_path / "t.db"), [(1, "001")])
     db.ensure_intelligence_columns(conn)   # gia' presenti dallo schema: no-op
