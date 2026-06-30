@@ -27,6 +27,12 @@ on:
       sources:
         description: "Quali fonti: both | cardrush | hareruya (per re-scrape mirate)"
         default: "both"
+      set:
+        description: "Solo questo set (es. SV2a) - per test/re-scrape mirate. Vuoto = tutto"
+        default: ""
+      limit:
+        description: "Max carte (solo con 'set', per test rapidi)"
+        default: "50"
 
 # serve per ricommittare il DB e i JSON aggiornati nel repo
 permissions:
@@ -71,13 +77,19 @@ jobs:
           python src/run.py --game pokemon --only cardrush
           --batch ${{ env.BATCH }} --sleep 1.0 --jitter 0.6 --set-gap 2
 
-      # Hareruya per-carta, per staleness. Spezzato su 4 finestre/notte (vedi schedule)
-      # per non stressarlo: ogni run ne tocca ~2.600, le piu' stantie.
-      - name: Lotto Hareruya per-carta per staleness
+      # Hareruya: modalita' PAGINA-SET (default, veloce). Con 'set' -> solo quel set
+      # (test/re-scrape mirate); altrimenti lotto per STALENESS (--batch).
+      - name: Lotto Hareruya
         if: ${{ github.event.inputs.sources != 'cardrush' }}
-        run: >
-          python src/run.py --game pokemon --only hareruya
-          --batch ${{ env.BATCH }} --sleep 1.0 --jitter 0.6 --set-gap 2
+        run: |
+          if [ -n "${{ github.event.inputs.set }}" ]; then
+            python src/run.py --game pokemon --only hareruya \
+              --set "${{ github.event.inputs.set }}" --limit "${{ github.event.inputs.limit || '50' }}" \
+              --sleep 1.0 --jitter 0.6 --set-gap 2
+          else
+            python src/run.py --game pokemon --only hareruya \
+              --batch ${{ env.BATCH }} --sleep 1.0 --jitter 0.6 --set-gap 2
+          fi
 
       - name: Commit dei dati aggiornati
         run: |
