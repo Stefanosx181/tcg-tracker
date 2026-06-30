@@ -218,6 +218,22 @@ def test_buylist_only_comparable_and_excludes_rejected(tmp_path):
     assert "999999" not in blob
 
 
+def test_index_skips_dates_without_base_cards(tmp_path):
+    # Una data in cui le carte presenti NON erano alla data base (peso assente) ->
+    # den=0 -> la data va SALTATA, NON emessa come 0 (niente crollo a zero nel grafico).
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A"), (2, "B")])
+    db.save_price(conn, 1, "cardrush", 100, run_date="2026-01-01 00:00:00")  # base: solo A
+    db.save_price(conn, 1, "cardrush", 120, run_date="2026-01-08 00:00:00")
+    db.save_price(conn, 2, "cardrush", 999, run_date="2026-01-15 00:00:00")  # B: mai a base
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    si = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
+    serie = si["sets"]["VSTAR Universe"]["cardrush"]
+    vals = [v for _, v in serie]
+    assert 0 not in vals                       # nessun punto a zero
+    assert "2026-01-15" not in [d for d, _ in serie]   # data senza carte-base SALTATA
+
+
 def test_health_json_written(tmp_path):
     conn = _make_v2(str(tmp_path / "t.db"), [(1, "A")])
     db.save_price(conn, 1, "cardrush", 100, run_date="2026-06-28 00:00:00")

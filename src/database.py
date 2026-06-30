@@ -584,7 +584,11 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
             # cali artificiali quando una carta manca (buchi nello storico).
             num = sum(present.get(c, 0) * w for c, w in weights.items())
             den = sum(w for c, w in weights.items() if c in present)
-            out.append([d, round(num / den, 1) if den else 0])
+            # se in questa data NESSUNA carta del set ha prezzo (es. tutte rejected/
+            # assenti quel giorno) -> SALTA la data, NON emettere 0: altrimenti il
+            # grafico precipita a zero e risale (storico "sballato").
+            if den:
+                out.append([d, round(num / den, 1)])
         return out
 
     def _collect(card_ids, src_series):
