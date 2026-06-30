@@ -520,6 +520,22 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
               open(os.path.join(out_dir, "buylist.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 
+    # --- health.json: salute del matcher per fonte ------------------------
+    # Distribuzione dello stato dell'ULTIMO record per carta+fonte. Serve a
+    # distinguere "matcher rotto / drift" (picco improvviso di absent) da "carte
+    # non ricomprate" (absent fisiologico). Un crollo dei 'confirmed' = allarme.
+    cur.execute("""SELECT source_code, price_status, COUNT(*) FROM tcg_price
+                   WHERE id IN (SELECT MAX(id) FROM tcg_price
+                                GROUP BY card_id, source_code)
+                   GROUP BY source_code, price_status""")
+    health = {}
+    for src, st, n in cur.fetchall():
+        health.setdefault(src, {})[st or "?"] = n
+    json.dump({"generated_at": generated_at, "sources": health,
+               "comparable_cards": len(buylist_rows), "total_cards": len(rows)},
+              open(os.path.join(out_dir, "health.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, default=str)
+
     # --- segnali azionabili (movers + spread) -----------------------------
     # Solo prezzi AFFIDABILI (confirmed + non-outlier + >0): l'aggancio 3.1
     # evita falsi segnali da carry-forward/spike. I movers usano series_norm.

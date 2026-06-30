@@ -218,6 +218,17 @@ def test_buylist_only_comparable_and_excludes_rejected(tmp_path):
     assert "999999" not in blob
 
 
+def test_health_json_written(tmp_path):
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A")])
+    db.save_price(conn, 1, "cardrush", 100, run_date="2026-06-28 00:00:00")
+    db.save_price(conn, 1, "hareruya", 120, run_date="2026-06-28 00:00:00")
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    h = json.load(open(os.path.join(out, "health.json"), encoding="utf-8"))
+    assert "sources" in h and h["sources"].get("cardrush", {}).get("confirmed") == 1
+    assert h["total_cards"] == 1 and h["comparable_cards"] == 1
+
+
 def test_ensure_columns_idempotent(tmp_path):
     conn = _make_v2(str(tmp_path / "t.db"), [(1, "001")])
     db.ensure_intelligence_columns(conn)   # gia' presenti dallo schema: no-op
