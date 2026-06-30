@@ -345,6 +345,16 @@ def _slim_buylist_row(r):
     return out
 
 
+def _comparable(r):
+    """True se la carta ha un prezzo (>0) da ALMENO DUE fonti: solo cosi' il
+    confronto buyback ha senso (es. Pokemon = CardRush E Hareruya). Le carte a
+    fonte singola (l'altra fonte non le ricompra) sono inutili per il confronto e
+    vengono ESCLUSE dalla buylist. 'Controllo all'aggiunta': una carta nuova compare
+    solo quando ottiene entrambi i prezzi. NB: l'indice ufficiale (setindex) resta su
+    TUTTE le carte -> vincolo di coincidenza con l'Excel non toccato."""
+    return sum(1 for v in (r.get("prices") or {}).values() if (v.get("price") or 0) > 0) >= 2
+
+
 def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None):
     """Genera i JSON che alimentano la dashboard statica (Cloudflare Pages):
 
@@ -498,8 +508,11 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         cid = str(r["card_id"])
         r["trend"] = {src: _trend(pts) for src, pts in series.get(cid, {}).items()}
 
+    # Buylist = solo carte COMPARABILI (prezzo da >=2 fonti). 'rows' resta intero
+    # per l'indice/serie storica qui sotto (l'indice NON va filtrato).
+    buylist_rows = [r for r in rows if _comparable(r)]
     json.dump({"generated_at": generated_at,
-               "rows": [_slim_buylist_row(r) for r in rows]},
+               "rows": [_slim_buylist_row(r) for r in buylist_rows]},
               open(os.path.join(out_dir, "buylist.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 
