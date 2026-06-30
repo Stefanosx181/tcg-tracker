@@ -308,6 +308,105 @@ def _collector_number(text: str):
     return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
+# ======================================================================
+#  IDENTITA' CARTA: helper condivisi per agganciare SEMPRE la carta giusta
+#  (numero pieno + NOME + tier di stampa). Vedi docs/IDENTITY_ENGINE_SPEC.md.
+# ======================================================================
+# tag set tra [ ] anche con suffisso-variante: [SV2a-Ma], [SV11B], [M5]
+_SETTAG_RE = re.compile(r"\[([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)?)\]")
+# codice prodotto Hareruya in coda: [EX00944], [43617a] (puo' finire con 'a' = mirror)
+_PRODCODE_RE = re.compile(r"\[([0-9][A-Za-z0-9]*)\]")
+
+# marcatori di STAMPA/finitura (oggetto fisico diverso a parita' di set+numero):
+_MIRROR_MARKERS = (
+    ("masterball",  ("マスターボールミラー", "マスボミラー")),
+    ("monsterball", ("モンスターボールミラー", "モンスボミラー", "ポケモンボールミラー")),
+    ("reverse",     ("リバース",)),
+)
+
+
+def print_tier_pokemon(name: str, extra: str = "", set_tag: str = "", prod_code: str = "") -> str:
+    """Tier di stampa di una carta POKEMON da segnali del listing.
+
+    Ritorna 'masterball' | 'monsterball' | 'reverse' | '' (= base/standard).
+    Riconosce il marcatore dal NOME (':マスターボールミラー'), da extra_difference,
+    dal suffisso del tag set Hareruya (-Ma/-Mo) e dal suffisso 'a' del codProd.
+    Conservativo: in caso di marcatore noto NON-base, lo classifica come tale
+    cosi' il veto-mirror puo' scattare; se nulla matcha -> '' (base)."""
+    blob = f"{name or ''} {extra or ''}"
+    for tier, markers in _MIRROR_MARKERS:
+        if any(mk in blob for mk in markers):
+            return tier
+    tag = (set_tag or "").upper()
+    if tag.endswith("-MA"):
+        return "masterball"
+    if tag.endswith("-MO"):
+        return "monsterball"
+    return ""
+
+
+def collector_tuple(text: str):
+    """('262','172') senza zeri iniziali da un numero pieno (o None se assente).
+    Confronta il NUMERO PIENO (numeratore E denominatore), mai il solo numeratore."""
+    m = re.search(r"(\d+)\s*/\s*(\d+)", text or "")
+    return (m.group(1).lstrip("0") or "0", m.group(2).lstrip("0") or "0") if m else None
+
+
+def _norm_set_tag(tag: str) -> str:
+    """Normalizza un set tag per il confronto: upper, strip, via il suffisso
+    variante dopo '-' ('SV2a-Ma' -> 'SV2A'). Il suffisso resta segnale di stampa."""
+    return (tag or "").strip().upper().split("-")[0]
+
+
+def _norm_name(s: str) -> str:
+    """Nome normalizzato per confronto: minuscole, niente spazi (half/full-width).
+    I caratteri giapponesi restano; 'ex'/'EX' diventano confrontabili."""
+    return (s or "").lower().replace(" ", "").replace("　", "")
+
+
+def _strip_listing_decorations(name: str) -> str:
+    """Estrae il NOME-BASE della carta da un nome-listing, togliendo (rarita'),
+    {energia}, 〈numero〉, [tag], e i marcatori di finitura mirror (':マスターボールミラー').
+    NON spezza genericamente su ':' (per non rompere nomi tipo 'タイプ:ヌル')."""
+    s = name or ""
+    s = re.sub(r"[（(][^（）()]*[)）]", "", s)        # (rarita')
+    s = re.sub(r"[｛{][^｛｝{}]*[}｝]", "", s)          # {energia}
+    s = re.sub(r"[〈<][^〉>]*[〉>]", "", s)            # 〈numero〉
+    s = re.sub(r"\[[^\]]*\]", "", s)                  # [tag][codProd]
+    # suffisso di FINITURA dopo ':' (es. 'クイックボール:ミラー', 'ガーディ:マスターボールミラー'):
+    # si toglie SOLO se la coda contiene una parola di finitura, per non rompere
+    # nomi con ':' legittimo (es. 'タイプ:ヌル').
+    for sep in ("：", ":"):
+        head, found, tail = s.partition(sep)
+        if found and any(kw in tail for kw in ("ミラー", "リバース", "パラレル")):
+            s = head
+    return s.strip(" :：・/")
+
+
+def _name_bigrams(s: str) -> set:
+    s = _norm_name(s)
+    return {s[i:i + 2] for i in range(len(s) - 1)} if len(s) >= 2 else ({s} if s else set())
+
+
+def name_match(ours: str, listing_name: str, threshold: float = 0.85) -> bool:
+    """True se il nome-base del listing E' la nostra carta. Uguaglianza del
+    segmento normalizzato OPPURE Jaccard sui bigrammi >= soglia. NON substring
+    (cosi' 'ガーディ' non aggancia 'ガーディアン' ne' viene rotto da suffissi)."""
+    a = _norm_name(ours)
+    if not a:
+        return False
+    b = _norm_name(_strip_listing_decorations(listing_name))
+    if not b:
+        return False
+    if a == b:
+        return True
+    A, B = _name_bigrams(ours), _name_bigrams(_strip_listing_decorations(listing_name))
+    if not A or not B:
+        return False
+    inter = len(A & B)
+    return inter / len(A | B) >= threshold
+
+
 def parse_hareruya(html: str) -> list:
     """HTML grezzo di hare2buy -> lista di {'name': str, 'price': int|None}.
 
@@ -330,9 +429,14 @@ def parse_hareruya(html: str) -> list:
         price_el = it.select_one(HARERUYA_SELECTORS["price"])
         if not (name_el and price_el):
             continue
+        nm = name_el.get_text(strip=True)
+        st = _SETTAG_RE.search(nm)
+        pc = _PRODCODE_RE.search(nm)
         out.append({
-            "name": name_el.get_text(strip=True),
+            "name": nm,
             "price": _to_int_price(price_el.get_text()),
+            "set_tag": st.group(1) if st else "",
+            "prod_code": pc.group(1) if pc else "",
         })
     return out
 

@@ -49,6 +49,11 @@ class Query:
     match: dict = field(default_factory=dict)
 
 
+# Spread oltre il quale due candidati superstiti sono quasi certo carte FISICHE
+# diverse con lo stesso numero -> astensione (mai prezzo sbagliato).
+_AMBIGUITY_RATIO = 4.0
+
+
 def _field(card, key, default=None):
     """Legge un campo della carta sia da dict sia da sqlite3.Row (niente .get())."""
     try:
@@ -141,12 +146,16 @@ class CardRushAdapter(SourceAdapter):
         # POKEMON: costruisci l'URL COMPLETO (forma SPA) da model+pack. Anti-403:
         # CardRush blocca le richieste minimali da datacenter, accetta quelle complete.
         if game == "pokemon":
+            number = str(_field(card, "number", "") or "").strip()
             model = (str(_field(card, "model_number", "") or "").strip()
-                     or str(_field(card, "number", "") or "").split("/")[0])
+                     or number.split("/")[0])
             pack = _field(card, "pack_code", "") or ""
+            # 'full' = numero PIENO per il match (num+den); 'model' resta il numeratore
+            # SOLO per costruire l'URL SPA anti-403. 'name'/'tier' = porte identita'.
             return Query(url=sc.pokemon_cardrush_url(model, pack), match={
-                "model": model, "pack": pack,
-                "variant": _field(card, "variant", "") or "", "game": game})
+                "model": model, "pack": pack, "full": number or model,
+                "name": _field(card, "full_name", "") or "",
+                "tier": _field(card, "variant", "") or "", "game": game})
         # altri giochi: usa l'URL per-carta memorizzato (OP/YGO)
         url = _field(card, "cardrush_url", "")
         qs = urlparse.parse_qs(urlparse.urlparse(url).query)
@@ -162,12 +171,16 @@ class CardRushAdapter(SourceAdapter):
 
     def parse(self, raw: str, query: Query) -> list:
         items = sc.parse_cardrush(raw)        # puo' sollevare LayoutError
-        want_model = query.match.get("model", "")
+        game = query.match.get("game")
+        op = game == "onepiece"
+        is_pk = game == "pokemon"
         want_pack = query.match.get("pack", "")
-        # One Piece: aggancio per TIER di stampa (base/parallel/super) + filtro rumore,
-        # cosi' fonti diverse confrontano la STESSA stampa. Altri giochi: invariato.
-        op = query.match.get("game") == "onepiece"
-        want_tier = (query.match.get("variant", "") or "") or "base"
+        want_model = query.match.get("model", "")
+        # POKEMON: porte identita' (numero PIENO + nome + tier). Vedi IDENTITY_ENGINE_SPEC.
+        want_full = sc.collector_tuple(query.match.get("full", "")) if is_pk else None
+        want_name = query.match.get("name", "") if is_pk else ""
+        want_tier_pk = (query.match.get("tier", "") or "") if is_pk else ""
+        want_tier_op = (query.match.get("variant", "") or "") or "base"
         offers = []
         for it in items:
             if not isinstance(it, dict):
@@ -177,8 +190,11 @@ class CardRushAdapter(SourceAdapter):
                 continue
             model = str(it.get("model_number", ""))
             pack = str(it.get("pack_code", ""))
-            # model_number puo' essere "262" o "262/172": confronta anche il prefisso
-            if want_model and not (model == want_model or model.split("/")[0] == want_model):
+            # PORTA NUMERO: Pokemon = numero PIENO (num+den); OP/YGO = invariato (codice/prefisso)
+            if is_pk:
+                if want_full and sc.collector_tuple(model) != want_full:
+                    continue
+            elif want_model and not (model == want_model or model.split("/")[0] == want_model):
                 continue
             if want_pack and pack and pack.lower() != want_pack.lower():
                 continue
@@ -190,12 +206,27 @@ class CardRushAdapter(SourceAdapter):
                 extra = it.get("extra_difference") or ""
                 if sc.is_noise_listing(extra):
                     continue
-                if sc.print_tier_cardrush(it.get("rarity"), extra) != want_tier:
+                if sc.print_tier_cardrush(it.get("rarity"), extra) != want_tier_op:
+                    continue
+                offers.append(Offer(price=price))
+            elif is_pk:
+                nm = it.get("name", "") or ""
+                extra = it.get("extra_difference") or ""
+                # PORTA NOME (requisito) + PORTA TIER (veto mirror: base -> solo base)
+                if want_name and not sc.name_match(want_name, nm):
+                    continue
+                if sc.print_tier_pokemon(nm, extra) != want_tier_pk:
                     continue
                 offers.append(Offer(price=price))
             else:
                 variant = (it.get("extra_difference") or "").strip()
                 offers.append(Offer(price=price, variant=variant))
+        # GUARD AMBIGUITA' (Pokemon): carte fisicamente diverse con stesso numero che
+        # sfuggono alle porte -> se i prezzi divergono troppo, astieniti.
+        if is_pk and len({o.price for o in offers}) >= 2:
+            ps = [o.price for o in offers]
+            if min(ps) and max(ps) / min(ps) > _AMBIGUITY_RATIO:
+                return []
         return offers
 
     def select(self, offers, query=None):
@@ -233,50 +264,46 @@ class HareruyaAdapter(SourceAdapter):
         url = sc.HARERUYA_SEARCH.format(q=requests.utils.quote(full))
         return Query(url=url, match={"full": full,
                                      "pack": _field(card, "pack_code"),
-                                     "name": _field(card, "full_name")})
+                                     "name": _field(card, "full_name"),
+                                     "tier": _field(card, "variant", "") or ""})
 
     def fetch(self, query: Query, client) -> str:
         return client.get(query.url).text
 
     def parse(self, raw: str, query: Query) -> list:
         items = sc.parse_hareruya(raw)        # puo' sollevare LayoutError
-        full = query.match.get("full")
+        target = sc.collector_tuple(query.match.get("full") or "")
         want_name = (query.match.get("name") or "").strip()
-        # target = (numeratore, denominatore) entrambi senza zeri iniziali.
-        # Match sul numero PIENO (non solo il numeratore): '058/165' NON deve
-        # agganciare '058/100' di un altro set.
-        if full and "/" in full:
-            tn, td = full.split("/", 1)
-            target = (tn.lstrip("0"), td.lstrip("0"))
-        else:
-            target = None
-        # 1) filtro per numero pieno
-        matched = []   # (price, hareruya_name)
+        want_pack = sc._norm_set_tag(query.match.get("pack") or "")
+        want_tier = (query.match.get("tier") or "")        # '' = base
+        prices = []
         for it in items:
             name = it.get("name", "")
+            set_tag = it.get("set_tag", "")
+            # PORTA 1 NUMERO PIENO (num+den), dal 〈〉 nel nome: '058/165' != '058/100'
             if target is not None:
                 cm = sc._COLLECTOR_RE.search(name)
-                if not cm or (cm.group(1).lstrip("0"), cm.group(2).lstrip("0")) != target:
+                if not cm or (cm.group(1).lstrip("0") or "0", cm.group(2).lstrip("0") or "0") != target:
                     continue
+            # PORTA 2 SET: se il tag c'e' e non combacia (spogliato di -Ma/-Mo) -> scarta;
+            #            se manca -> non blocca (il nome e il numero reggono comunque).
+            if want_pack and set_tag and sc._norm_set_tag(set_tag) != want_pack:
+                continue
+            # PORTA 3 NOME (requisito): uguaglianza-segmento + Jaccard, NON substring.
+            #   Separa コイル da Pikachu V, e astiene se la carta non e' su Hareruya.
+            if want_name and not sc.name_match(want_name, name):
+                continue
+            # PORTA 4 TIER (veto mirror): carta base (variant='') -> SOLO listing base.
+            #   Se restano solo mirror -> prices vuoto -> astensione (mai 1800 al posto di 100).
+            if sc.print_tier_pokemon(name, set_tag=set_tag) != want_tier:
+                continue
             p = it.get("price")
             if p:
-                matched.append((p, name))
-        # 2) QUALIFICA per NOME carta. Lo stesso numero aggancia spesso una carta
-        #    DIVERSA (sotto-set/varianti) e MOLTO spesso la nostra carta non e' su
-        #    Hareruya affatto. Il tag set di Hareruya e' inaffidabile (trattini,
-        #    codici diversi), quindi il NOME e' REQUISITO: se nessun risultato
-        #    contiene il nome della carta -> NIENTE prezzo (mai ripiegare sulla
-        #    carta sbagliata). Confronto normalizzato (no spazi, case-insensitive
-        #    per ex/EX). Senza nome (raro) si resta sul match per numero.
-        if want_name:
-            key = _norm_name(want_name)
-            matched = [(p, n) for (p, n) in matched if key and key in _norm_name(n)]
-        # 3) guard ambiguita': se restano prezzi troppo divergenti, quasi certo
-        #    collisione non risolta -> niente prezzo (meglio nessuno che sbagliato).
-        prices = [p for (p, _) in matched]
+                prices.append(p)
+        # GUARD AMBIGUITA': se restano prezzi troppo divergenti, collisione non risolta.
         if len(set(prices)) >= 2 and min(prices) and max(prices) / min(prices) > self.AMBIGUITY_RATIO:
             return []
-        return [Offer(price=p) for (p, _) in matched]
+        return [Offer(price=p) for p in prices]
 
 
 # ----------------------------------------------------------------------

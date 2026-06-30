@@ -256,6 +256,75 @@ def test_hareruya_no_price_when_our_card_absent():
     assert a.scrape(magnemite, _FakeClient(html)) is None
 
 
+# ==== KILLER FIXTURES: porte identita' (numero pieno + set + nome + veto mirror) ====
+import json as _json   # noqa: E402
+
+KABUTOPS = {"id": 141, "game_code": "pokemon", "pack_code": "SV2a", "card_code": None,
+            "model_number": "141", "number": "141/165", "variant": "", "full_name": "カブトプス"}
+
+
+def _cardrush_html(items):
+    nd = {"props": {"pageProps": {"buyingPrices": items}}}
+    return ('<script id="__NEXT_DATA__" type="application/json">'
+            + _json.dumps(nd, ensure_ascii=False) + '</script>')
+
+
+def _cr(name, model, pack, amount, extra="", rarity=""):
+    return {"name": name, "model_number": model, "pack_code": pack, "amount": amount,
+            "extra_difference": extra, "rarity": rarity}
+
+
+def test_cardrush_pokemon_veto_mirror_picks_base():
+    # KILLER: Kabutops 141/165 SV2a = 3 righe (base 10, monster 400, master 1700).
+    # La carta base deve dare 10, MAI il max 1700 della mirror.
+    a = ad.CardRushAdapter()
+    html = _cardrush_html([
+        _cr("カブトプス", "141/165", "SV2a", 10),
+        _cr("カブトプス:モンスターボールミラー", "141/165", "SV2a", 400),
+        _cr("カブトプス:マスターボールミラー", "141/165", "SV2a", 1700),
+    ])
+    offer = a.scrape(KABUTOPS, _FakeClient(html))
+    assert offer is not None and offer.price == 10
+
+
+def test_cardrush_pokemon_full_number_not_numerator():
+    # KILLER #1: stesso numeratore, set/denominatore diversi -> il numero PIENO scarta 141/100.
+    a = ad.CardRushAdapter()
+    html = _cardrush_html([
+        _cr("カブトプス", "141/165", "SV2a", 10),
+        _cr("べつのカード", "141/100", "XY", 99999),
+    ])
+    offer = a.scrape(KABUTOPS, _FakeClient(html))
+    assert offer is not None and offer.price == 10
+
+
+def test_hareruya_veto_mirror_only_base_abstains():
+    # KILLER #2: per la carta base esistono SOLO le mirror -> astensione (no 1800).
+    a = ad.HareruyaAdapter()
+    q = a.build_query(KABUTOPS)
+    html = _hareruya_html([
+        ("カブトプス:モンスターボールミラー〈141/165〉[SV2a-Mo]", "100円"),
+        ("カブトプス:マスターボールミラー〈141/165〉[SV2a-Ma]", "1,800円"),
+    ])
+    assert a.parse(html, q) == []
+
+
+def test_hareruya_set_gate_picks_right_set_078_070():
+    # KILLER #3: 078/070 = 4 carte diverse su 4 set. Gate set + nome isolano la nostra.
+    a = ad.HareruyaAdapter()
+    happiny = {"id": 1, "game_code": "pokemon", "pack_code": "S6K", "card_code": None,
+               "model_number": "078", "number": "078/070", "variant": "", "full_name": "ハピナスV"}
+    q = a.build_query(happiny)
+    html = _hareruya_html([
+        ("ハピナスV(RR){無}〈078/070〉[S6K]", "250円"),
+        ("アーマーガアV(RR){無}〈078/070〉[S5R]", "350円"),
+        ("ポケモンブリーダー(R)〈078/070〉[S2a]", "700円"),
+        ("ガラルファイヤーV:SA(SR){悪}〈078/070〉[S5a]", "26,000円"),
+    ])
+    offer = a.select(a.parse(html, q), q)
+    assert offer is not None and offer.price == 250
+
+
 # ====================================================================
 # ONE PIECE — CardRush OP (numerazione OP01-001 + varianti) e Yuyu-tei
 # ====================================================================
