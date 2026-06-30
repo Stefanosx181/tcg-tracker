@@ -53,6 +53,9 @@ def main():
                          "(--only): sharding notturno di Hareruya su piu' run")
     ap.add_argument("--jitter", type=float, default=0.0,
                     help="secondi casuali extra [0,jitter] tra una carta e l'altra (credibilita')")
+    ap.add_argument("--no-set-pages", action="store_true",
+                    help="Hareruya: disabilita la modalita' pagina-set (torna alla "
+                         "ricerca per-carta, lenta). Default: pagina-set abilitata.")
     ap.add_argument("--set-gap", type=float, default=0.0,
                     help="pausa casuale extra [0,set_gap] al cambio di set")
     args = ap.parse_args()
@@ -133,6 +136,13 @@ def main():
     # Adapter candidati (filtrati da --only). La fonte giusta per ogni carta si
     # sceglie poi per GIOCO (a.supports): es. Hareruya solo Pokémon, Yuyu-tei OP.
     candidates = ad.get_adapters(args.only)
+    # Hareruya: modalita' PAGINA-SET (una richiesta per espansione, in cache) invece
+    # della ricerca per-carta -> da ~ore a minuti. Fallback automatico per-carta sui
+    # set non mappati. Si puo' disabilitare con --no-set-pages.
+    if not getattr(args, "no_set_pages", False):
+        for a in candidates:
+            if getattr(a, "source_code", "") == "hareruya":
+                a.use_set_pages = True
     all_sources = [a.source_code for a in candidates]
 
     print(f"Carte da elaborare: {len(cards)}\n")

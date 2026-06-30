@@ -53,6 +53,22 @@ class Query:
 # diverse con lo stesso numero -> astensione (mai prezzo sbagliato).
 _AMBIGUITY_RATIO = 4.0
 
+import json as _json   # noqa: E402
+import os as _os       # noqa: E402
+
+
+def _load_hareruya_set_pages():
+    """Mappa set_code(UPPER) -> id pagina-espansione hare2buy. Vuota se assente."""
+    p = _os.path.join(_os.path.dirname(__file__), "..", "db", "hareruya_set_pages.json")
+    try:
+        d = _json.load(open(p, encoding="utf-8"))
+        return {k.upper(): v for k, v in d.items() if isinstance(v, int)}
+    except Exception:
+        return {}
+
+
+_HR_SETPAGE = _load_hareruya_set_pages()
+
 
 def _field(card, key, default=None):
     """Legge un campo della carta sia da dict sia da sqlite3.Row (niente .get())."""
@@ -249,6 +265,12 @@ class HareruyaAdapter(SourceAdapter):
     # quasi certamente sono carte DIVERSE con lo stesso numero (collisione di ricerca):
     # meglio NESSUN prezzo che un buyback sbagliato (vedi docs/AUDIT.md).
     AMBIGUITY_RATIO = 4.0
+    # MODALITA' PAGINA-SET: una richiesta per espansione (cache) invece di una per
+    # carta. run.py la abilita per Pokemon; default OFF (path per-carta = fallback).
+    use_set_pages = False
+
+    def __init__(self):
+        self._cache = {}            # per-run: sid -> raw concatenato di tutte le pagine
 
     def build_query(self, card) -> Query:
         model = _field(card, "model_number", "")
@@ -261,14 +283,44 @@ class HareruyaAdapter(SourceAdapter):
                 or sc._collector_number(model))
         if not full:
             return Query(url="", match={})
-        url = sc.HARERUYA_SEARCH.format(q=requests.utils.quote(full))
-        return Query(url=url, match={"full": full,
-                                     "pack": _field(card, "pack_code"),
-                                     "name": _field(card, "full_name"),
-                                     "tier": _field(card, "variant", "") or ""})
+        pack = _field(card, "pack_code", "") or ""
+        match = {"full": full, "pack": pack,
+                 "name": _field(card, "full_name"),
+                 "tier": _field(card, "variant", "") or ""}
+        # pagina-set se abilitata e il set e' mappato; altrimenti ricerca per-carta.
+        sid = _HR_SETPAGE.get(pack.strip().upper()) if (self.use_set_pages and pack) else None
+        if sid:
+            match["sid"] = sid
+            return Query(url=sc.HARERUYA_SETPAGE.format(sid=sid, n=1), match=match)
+        return Query(url=sc.HARERUYA_SEARCH.format(q=requests.utils.quote(full)), match=match)
 
     def fetch(self, query: Query, client) -> str:
-        return client.get(query.url).text
+        sid = query.match.get("sid")
+        if not sid:
+            return client.get(query.url).text
+        # pagina-ESPANSIONE: scarica TUTTE le pagine UNA volta sola e mettile in cache
+        # per-run (come YuyuteiAdapter). Le carte successive dello stesso set NON
+        # rifanno la richiesta. Stop su pagina vuota o ripetuta (anti-loop).
+        if sid in self._cache:
+            return self._cache[sid]
+        parts, prev = [], None
+        for n in range(1, 16):
+            try:
+                raw = client.get(sc.HARERUYA_SETPAGE.format(sid=sid, n=n)).text
+            except requests.RequestException:
+                break
+            if raw == prev:
+                break
+            try:
+                if not sc.parse_hareruya(raw):
+                    break
+            except sc.LayoutError:
+                break
+            parts.append(raw)
+            prev = raw
+        combined = "\n".join(parts)
+        self._cache[sid] = combined
+        return combined
 
     def parse(self, raw: str, query: Query) -> list:
         items = sc.parse_hareruya(raw)        # puo' sollevare LayoutError

@@ -1,0 +1,10 @@
+{
+  "_comment": "Mappa set_code (UPPER) -> id pagina-espansione hare2buy /product-list/{id}. Verificata sui menu-serie (2026-06-30). Lo scraper VERIFICA comunque il tag della pagina prima di fidarsi; un id sbagliato o un set non mappato -> fallback alla ricerca per-carta. Refreshabile dai menu serie /product-list/{1,2,128,187}.",
+  "S12A": 127,
+  "SV1V": 130, "SV1S": 131, "SV1A": 139, "SV2A": 144, "SV2D": 141, "SV2P": 142,
+  "SV3": 146, "SV3A": 151, "SV4M": 153, "SV4K": 152, "SV4A": 158,
+  "SV5M": 160, "SV5K": 159, "SV5A": 163, "SV6": 168, "SV6A": 169,
+  "SV7": 170, "SV7A": 174, "SV8": 175, "SV8A": 176, "SV9": 178, "SV9A": 180,
+  "SV10": 183, "SV11B": 184, "SV11W": 185, "SV-P": 129,
+  "M1L": 188, "M1S": 189, "M2": 194, "M2A": 197, "M3": 200, "M4": 201, "M5": 202, "M-P": 191
+}

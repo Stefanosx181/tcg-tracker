@@ -325,6 +325,50 @@ def test_hareruya_set_gate_picks_right_set_078_070():
     assert offer is not None and offer.price == 250
 
 
+def test_hareruya_set_page_mode_matches_within_set_and_caches():
+    # SPEEDUP: modalita' pagina-set. Una richiesta per set (cache), match dentro il
+    # set noto. Seconda carta stesso set -> cache, nessuna nuova richiesta.
+    a = ad.HareruyaAdapter()
+    a.use_set_pages = True
+    card = dict(CATALOG_CARD)   # ガーディ 058/165 SV2a -> sid 144
+    q = a.build_query(card)
+    assert q.match.get("sid") == 144 and "product-list/144" in q.url
+    page1 = _hareruya_html([
+        ("ガーディ(C){炎}〈058/165〉[SV2a]", "10円"),
+        ("リザードンex(SAR){炎}〈198/165〉[SV2a]", "5,000円"),
+    ])
+    empty = '<div class="itemlist"></div>'
+
+    class _PageClient:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url):
+            self.calls += 1
+
+            class _R:
+                pass
+            r = _R()
+            r.text = page1 if "page=1" in url else empty
+            return r
+
+    cli = _PageClient()
+    offer = a.scrape(card, cli)
+    assert offer is not None and offer.price == 10
+    n_after_first = cli.calls
+    card2 = dict(CATALOG_CARD, number="198/165", full_name="リザードンex")
+    offer2 = a.scrape(card2, cli)
+    assert offer2 is not None and offer2.price == 5000
+    assert cli.calls == n_after_first   # cache hit: nessuna nuova richiesta HTTP
+
+
+def test_hareruya_set_page_disabled_by_default_uses_per_card():
+    # default OFF: niente sid, usa la ricerca per-carta (path di fallback invariato)
+    a = ad.HareruyaAdapter()
+    q = a.build_query(dict(CATALOG_CARD))
+    assert "sid" not in q.match and "keyword=" in q.url
+
+
 # ====================================================================
 # ONE PIECE — CardRush OP (numerazione OP01-001 + varianti) e Yuyu-tei
 # ====================================================================

@@ -283,6 +283,9 @@ def scrape_cardrush(url: str, client: "HttpClient | None" = None):
 # HARERUYA (hare2buy.com) - parse (offline) + pick
 # ----------------------------------------------------------------------
 HARERUYA_SEARCH = "https://www.hare2buy.com/product-list?keyword={q}"
+# pagina-ESPANSIONE (lista buyback di un intero set in poche richieste, vs ricerca
+# per-carta): /product-list/{id}?page={n}. Vedi db/hareruya_set_pages.json.
+HARERUYA_SETPAGE = "https://www.hare2buy.com/product-list/{sid}?page={n}"
 HARERUYA_SELECTORS = {
     "item":   ".list_item_cell, [class*=list_item_]",   # contenitore prodotto
     "name":   ".goods_name, .item_name",                # nome carta
