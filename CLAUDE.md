@@ -210,9 +210,26 @@ redesign **"Sumi 墨"** → `docs/UI_REDESIGN_SUMI.md`.
   ri-catalogare con `INSERT OR IGNORE` creava DUPLICATI. `build_catalog.py` ora fa un controllo
   di esistenza esplicito su `(set, number, variant)` (no INSERT OR IGNORE). Lockato da
   `tests/test_build_catalog.py::test_no_duplicati_dopo_cambio_rarita`. Schema da semplificare.
-- **best_price = max()**: può catturare una variante/error card invece della standard. Ora il
-  flag `is_outlier` (vs mediana storica) la segnala e la vista normalizzata la esclude
-  dall'indice, ma la SELEZIONE del best_price è ancora `max()`: migliorabile.
+- **[RISOLTO 2026-06-30] Matching prezzi sbagliati (carta sbagliata / best_price=max)**: lo
+  scraping agganciava la carta sbagliata (es. comune ¥10 → ¥230.000) perché il numero da solo non
+  è univoco (collide cross-set, varianti mirror). Ora c'è un **motore di identità a porte AND**
+  (`src/scrapers.py`: `print_tier_pokemon`, `name_match` Jaccard≥0.85, `collector_tuple`,
+  `_norm_set_tag`; gate in `adapters.py`): NUMERO PIENO (num+den) + SET (tag normalizzato) + NOME
+  (Jaccard, non substring) + VETO MIRROR (carta base → mai prezzo della mirror) + guard 4x →
+  altrimenti **astensione**. CardRush ora matcha per numero pieno (non più solo numeratore).
+  Pubblicazione: la buylist mostra SOLO prezzi `confirmed`+non-outlier (no carried/spike).
+  Lockato da `tests/test_adapters.py` (fixture killer) + `tests/test_excel_blindatura.py`.
+  Spec: `docs/IDENTITY_ENGINE_SPEC.md`, `docs/PRICE_CORRECTNESS_PLAN.md`. RESTA da fare (Fase D):
+  modellare le varianti mirror nello schema (`variant`) per dare il prezzo della mirror invece di
+  astenersi; finché no → veto = astensione sulle base che esistono solo come mirror.
+- **[RISOLTO 2026-06-30] Hareruya lento (per-carta)**: la ricerca per-carta (~10k richieste, ~8h)
+  è sostituita dalla **modalità PAGINA-SET** (`HareruyaSetAdapter.use_set_pages`, abilitata da
+  `run.py`): scarica la pagina-espansione `/product-list/{id}` una volta per set (cache per-run,
+  paginazione `?page=N`) → poche decine di richieste. Mappa set→id in `db/hareruya_set_pages.json`
+  (SV*+M*+S12a, verificata; lo scraper VERIFICA il tag → set non mappato/id errato → fallback
+  ricerca per-carta). Validato live (SV2a: 15/20 prezzi sani + veto mirror). `--no-set-pages` per
+  disabilitare. Scoperta: il **denominatore varia per fonte** (Excel S12a /170, CardRush /172) →
+  per l'aggancio al ground-truth Excel match per set+NUMERATORE (tollerante).
 - **One Piece multi-stampa**: stesso numero = più stampe (10-1000x). PRECISIONE MASSIMA:
   `src/op_match.py` riconcilia CardRush↔Toretoku per tier + similarità d'arte; catalogo OP =
   una carta per STAMPA (`build_catalog.rebuild_onepiece_prints`), prezzi agganciati alla stessa
