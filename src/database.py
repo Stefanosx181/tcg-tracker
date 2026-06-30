@@ -412,10 +412,13 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         allow = _allowed(game)
         if allow is not None:
             pr = {s: v for s, v in pr.items() if s in allow}
-        # One Piece: mostra SOLO i prezzi appena confermati (no carry-forward
-        # stantio), cosi' un tier senza match pulito non resta su un prezzo vecchio.
-        if game == "onepiece":
-            pr = {s: v for s, v in pr.items() if v.get("status") == "confirmed"}
+        # PUBBLICAZIONE SICURA (per tutti i giochi): al cliente arrivano SOLO prezzi
+        # CONFERMATI ora e NON-outlier. Niente carry-forward stantio (in_stock=0),
+        # niente spike sospetti. NB: questo tocca SOLO la buylist mostrata; l'indice
+        # ufficiale (sotto) usa la serie GREZZA da tcg_price (price_raw, include i
+        # carried) e resta byte-identico all'Excel -> vincolo rispettato.
+        pr = {s: v for s, v in pr.items()
+              if v.get("status") == "confirmed" and not v.get("outlier")}
         r["prices"] = pr
         r["game"] = game
         # OP/YGO non hanno il card_code legacy: esponi il numero canonico
