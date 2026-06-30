@@ -345,6 +345,16 @@ def _slim_buylist_row(r):
     return out
 
 
+def _comparable(r):
+    """True se la carta ha un prezzo (>0) da ALMENO DUE fonti (es. Pokemon =
+    CardRush E Hareruya): solo cosi' il confronto buyback ha senso. Le carte SENZA
+    match sulla seconda fonte (Hareruya non le ricompra) sono inutili e vengono
+    ESCLUSE dalla buylist mostrata. NB: r['prices'] qui contiene SOLO prezzi
+    confirmed+non-outlier (filtrati in export_web) -> 'match' = prezzo affidabile.
+    L'indice ufficiale (setindex) NON e' filtrato (resta su tutte le carte)."""
+    return sum(1 for v in (r.get("prices") or {}).values() if (v.get("price") or 0) > 0) >= 2
+
+
 def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None):
     """Genera i JSON che alimentano la dashboard statica (Cloudflare Pages):
 
@@ -451,6 +461,7 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         SELECT card_id, source_code AS source, substr(scraped_at, 1, 10) AS d, price_raw
         FROM tcg_price
         WHERE id IN (SELECT MAX(id) FROM tcg_price
+                     WHERE price_status != 'rejected'
                      GROUP BY card_id, source_code, substr(scraped_at, 1, 10))
         ORDER BY card_id, source_code, d
     """)
@@ -501,8 +512,11 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         cid = str(r["card_id"])
         r["trend"] = {src: _trend(pts) for src, pts in series.get(cid, {}).items()}
 
+    # Buylist = SOLO carte comparabili (prezzo confirmed da >=2 fonti). 'rows' resta
+    # intero per l'indice/serie qui sopra (l'indice NON va filtrato).
+    buylist_rows = [r for r in rows if _comparable(r)]
     json.dump({"generated_at": generated_at,
-               "rows": [_slim_buylist_row(r) for r in rows]},
+               "rows": [_slim_buylist_row(r) for r in buylist_rows]},
               open(os.path.join(out_dir, "buylist.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 

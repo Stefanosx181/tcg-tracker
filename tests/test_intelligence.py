@@ -181,6 +181,8 @@ def test_per_card_trend_7_30_90(tmp_path):
            ("2026-04-03", 100), ("2026-04-10", 120)]
     for day, p in pts:
         db.save_price(conn, 1, "cardrush", p, run_date=f"{day} 00:00:00")
+    # seconda fonte: la carta deve essere COMPARABILE per comparire in buylist
+    db.save_price(conn, 1, "hareruya", 110, run_date="2026-04-10 00:00:00")
 
     out = str(tmp_path / "data")
     db.export_web(conn, out)
@@ -195,6 +197,27 @@ def test_per_card_trend_7_30_90(tmp_path):
 # --------------------------------------------------------------------------
 # 5) ensure_intelligence_columns idempotente
 # --------------------------------------------------------------------------
+def test_buylist_only_comparable_and_excludes_rejected(tmp_path):
+    # buylist = solo carte con prezzo da >=2 fonti; 'rejected' escluso ovunque.
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A"), (2, "B"), (3, "C")])
+    db.save_price(conn, 1, "cardrush", 100, run_date="2026-06-28 00:00:00")
+    db.save_price(conn, 1, "hareruya", 120, run_date="2026-06-28 00:00:00")   # 2 fonti -> resta
+    db.save_price(conn, 2, "cardrush", 100, run_date="2026-06-28 00:00:00")   # solo CR -> esclusa
+    # card3: CR + un HR poi marcato 'rejected' (garbage) -> NON comparabile -> esclusa
+    db.save_price(conn, 3, "cardrush", 100, run_date="2026-06-28 00:00:00")
+    db.save_price(conn, 3, "hareruya", 999999, run_date="2026-06-29 00:00:00")
+    conn.execute("UPDATE tcg_price SET price_status='rejected' WHERE card_id=3 AND source_code='hareruya'")
+    conn.commit()
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    buy = json.load(open(os.path.join(out, "buylist.json"), encoding="utf-8"))
+    assert {r["card_id"] for r in buy["rows"]} == {1}
+    # l'indice ufficiale NON include il prezzo 'rejected' (999999) di card3
+    si = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
+    blob = json.dumps(si)
+    assert "999999" not in blob
+
+
 def test_ensure_columns_idempotent(tmp_path):
     conn = _make_v2(str(tmp_path / "t.db"), [(1, "001")])
     db.ensure_intelligence_columns(conn)   # gia' presenti dallo schema: no-op
