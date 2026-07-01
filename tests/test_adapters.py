@@ -310,6 +310,17 @@ def test_cardrush_pokemon_skips_noise_bucket_no_rescrape():
     assert a.scrape(junk, _BoomClient()) is None   # non chiama neppure il client
 
 
+def test_hareruya_skips_noise_bucket_no_rescrape():
+    # simmetrico a CardRush: anche Hareruya NON ri-scrapa per-carta i bucket その他/乱
+    # (identita' inaffidabile -> stesso rischio broadcast). scrape() -> None, no rete.
+    a = ad.HareruyaAdapter()
+    junk = {"id": 9, "game_code": "pokemon", "pack_code": "その他",
+            "number": "057/070", "model_number": "057", "full_name": "promo"}
+    q = a.build_query(junk)
+    assert q.url == ""
+    assert a.scrape(junk, _BoomClient()) is None
+
+
 def test_cardrush_pokemon_full_number_key_alpha_denominator_no_broadcast():
     # REGRESSIONE DIRETTA: promo con denominatore ALFA (026/PLAY) dove collector_tuple
     # ritorna None. La chiave-numero robusta deve tenere SOLO 026/PLAY, mai il vicino.

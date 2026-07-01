@@ -258,10 +258,12 @@ redesign **"Sumi 墨"** → `docs/UI_REDESIGN_SUMI.md`.
   ri-scrapa i bucket `その他`/`乱` (`sc.POKEMON_NOISE_BUCKETS`) — il prezzo giusto lo scrive
   l'harvest; (b) porta-numero robusta ai promo (`sc.full_number_key`, confronta il numero PIENO come
   stringa quando il denominatore è alfa) + **astensione** in `parse` se nessun segnale d'identità
-  (mai `max()`). `_index` continua a escludere i bucket. Storico ripulito: 1339 righe broadcast
-  marcate `rejected` (mai cancellate). Lockato da `tests/test_adapters.py`. Resta minore: qualche
-  prezzo-singleton alto nei bucket (non-broadcast, comunque invisibile) e le collisioni analoghe
-  lato **Hareruya** nel bucket (indagine separata).
+  (mai `max()`). **Hareruya** ha lo stesso trattamento simmetrico: `HareruyaAdapter.build_query`
+  salta anch'esso i bucket. `_index` continua a escludere i bucket; con CR+HR broadcast marcati
+  `rejected` le carte bucket restano **fuori dalla buylist** (non comparabili). Storico ripulito:
+  1339 righe CR + 1389 righe HR broadcast marcate `rejected` (mai cancellate). Lockato da
+  `tests/test_adapters.py`. Resta minore: qualche prezzo-singleton alto non-broadcast nei bucket
+  (comunque invisibile) e il micro-bucket `海外版` (2 carte).
 - **Casing dei set**: i set Pokémon usano il casing ESATTO di CardRush (`S12a`, `M1L`, `sm12a`…);
   l'harvest fa match esatto su `set_code` (nessuna collisione riscontrata col catalogo curato).
   `full_name` mescola ancora JP/EN e a volte ripete il set.

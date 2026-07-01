@@ -302,6 +302,10 @@ class HareruyaAdapter(SourceAdapter):
         if not full:
             return Query(url="", match={})
         pack = _field(card, "pack_code", "") or ""
+        # BUCKET grab-bag (その他/乱): identita' inaffidabile (come CardRush) -> NON
+        # ri-scrapare per-carta; evita il broadcast e li tiene fuori da buylist/indice.
+        if pack in sc.POKEMON_NOISE_BUCKETS:
+            return Query(url="", match={})
         match = {"full": full, "pack": pack,
                  "name": _field(card, "full_name"),
                  "tier": _field(card, "variant", "") or ""}
