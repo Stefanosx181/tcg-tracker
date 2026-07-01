@@ -355,6 +355,32 @@ def _comparable(r):
     return sum(1 for v in (r.get("prices") or {}).values() if (v.get("price") or 0) > 0) >= 2
 
 
+def _fill_card_gaps(by_src):
+    """Riempie i BUCHI per-carta della serie storica: ogni fonte viene emessa su TUTTE
+    le date in cui QUALSIASI fonte della carta ha un punto. Giorno mancante = ULTIMO
+    prezzo noto (giorno PRIMA, carry-forward); i buchi INIZIALI (prima del primo punto
+    della fonte) = PRIMO prezzo noto (giorno DOPO, back-fill). Cosi' CardRush e Hareruya
+    restano allineate senza buchi nel grafico storico quando una notte gira solo una fonte.
+
+    by_src: {source: [[day, price], ...]} -> {source: [[day, price], ...]} riempita.
+    Si applica SOLO all'export history.json: NON tocca le serie usate da indice/trend."""
+    days = sorted({d for pts in by_src.values() for d, _ in pts})
+    out = {}
+    for src, pts in by_src.items():
+        m = {d: p for d, p in pts if p is not None}
+        first = next((m[d] for d in days if d in m), None)
+        if first is None:                     # fonte senza alcun prezzo reale: invariata
+            out[src] = [[d, p] for d, p in pts]
+            continue
+        filled, last = [], None
+        for d in days:
+            if d in m:
+                last = m[d]
+            filled.append([d, last if last is not None else first])
+        out[src] = filled
+    return out
+
+
 def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None):
     """Genera i JSON che alimentano la dashboard statica (Cloudflare Pages):
 
@@ -483,7 +509,11 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
     for card_id, source, day, price in cur.fetchall():
         series_norm.setdefault(str(card_id), {}).setdefault(source, []).append([day, price])
 
-    json.dump({"generated_at": generated_at, "series": series},
+    # history.json: serie per-carta con i BUCHI RIEMPITI (giorno prima / giorno dopo)
+    # cosi' CR e HR sono allineate nel grafico storico anche se una notte gira solo una
+    # fonte. NB: la serie GREZZA `series` resta invariata per indice e trend (sotto).
+    series_hist = {cid: _fill_card_gaps(by_src) for cid, by_src in series.items()}
+    json.dump({"generated_at": generated_at, "series": series_hist},
               open(os.path.join(out_dir, "history.json"), "w", encoding="utf-8"),
               ensure_ascii=False, default=str)
 

@@ -290,6 +290,43 @@ def test_noise_buckets_excluded_from_index(tmp_path):
     assert n == 1
 
 
+def test_history_fills_per_card_gaps_across_sources(tmp_path):
+    # una notte gira solo Hareruya (01-01), un'altra solo CardRush (01-15): nel grafico
+    # storico CR e HR devono avere un punto su TUTTE le date della carta, riportando il
+    # prezzo dal giorno PRIMA (o dal giorno DOPO per i buchi iniziali). La serie GREZZA
+    # (indice/trend) NON va toccata: solo history.json.
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A")])
+    db.save_price(conn, 1, "hareruya", 90,  run_date="2026-01-01 00:00:00")   # solo HR
+    db.save_price(conn, 1, "cardrush", 120, run_date="2026-01-08 00:00:00")
+    db.save_price(conn, 1, "hareruya", 110, run_date="2026-01-08 00:00:00")
+    db.save_price(conn, 1, "cardrush", 130, run_date="2026-01-15 00:00:00")   # solo CR
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    s = json.load(open(os.path.join(out, "history.json"), encoding="utf-8"))["series"]["1"]
+    # entrambe le fonti hanno un punto su tutte e 3 le date (griglia unione della carta)
+    assert [d for d, _ in s["cardrush"]] == ["2026-01-01", "2026-01-08", "2026-01-15"]
+    assert [d for d, _ in s["hareruya"]] == ["2026-01-01", "2026-01-08", "2026-01-15"]
+    # CR: buco INIZIALE 01-01 = primo prezzo noto (120, giorno dopo); 01-15 reale (130)
+    assert dict(s["cardrush"]) == {"2026-01-01": 120, "2026-01-08": 120, "2026-01-15": 130}
+    # HR: 01-15 mancante = riporto del giorno PRIMA (110)
+    assert dict(s["hareruya"]) == {"2026-01-01": 90, "2026-01-08": 110, "2026-01-15": 110}
+
+
+def test_gap_fill_does_not_touch_official_index(tmp_path):
+    # il riempimento buchi e' SOLO per history.json: l'indice ufficiale (setindex)
+    # resta byte-identico alla formula Excel (pesi fissi).
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A"), (2, "B")])
+    db.save_price(conn, 1, "cardrush", 100, run_date="2026-01-01 00:00:00")
+    db.save_price(conn, 2, "cardrush", 300, run_date="2026-01-01 00:00:00")
+    db.save_price(conn, 1, "cardrush", 120, run_date="2026-01-08 00:00:00")
+    db.save_price(conn, 2, "cardrush", 270, run_date="2026-01-08 00:00:00")
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    idx = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
+    assert idx["global"]["pokemon"]["cardrush"] == [["2026-01-01", 250.0],
+                                                    ["2026-01-08", 232.5]]
+
+
 def test_health_json_written(tmp_path):
     conn = _make_v2(str(tmp_path / "t.db"), [(1, "A")])
     db.save_price(conn, 1, "cardrush", 100, run_date="2026-06-28 00:00:00")
