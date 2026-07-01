@@ -298,6 +298,58 @@ def test_cardrush_pokemon_full_number_not_numerator():
     assert offer is not None and offer.price == 10
 
 
+# ==== BUCKET grab-bag その他/乱: stop al broadcast del re-scrape per-carta ====
+def test_cardrush_pokemon_skips_noise_bucket_no_rescrape():
+    # bucket その他: build_query NON produce URL -> nessun re-scrape per-carta (il
+    # prezzo giusto lo scrive l'harvest). scrape() ritorna None senza toccare la rete.
+    a = ad.CardRushAdapter()
+    junk = {"id": 9, "game_code": "pokemon", "pack_code": "その他",
+            "number": "026/DPt-P", "model_number": "026", "full_name": "基本超エネルギー"}
+    q = a.build_query(junk)
+    assert q.url == ""
+    assert a.scrape(junk, _BoomClient()) is None   # non chiama neppure il client
+
+
+def test_cardrush_pokemon_full_number_key_alpha_denominator_no_broadcast():
+    # REGRESSIONE DIRETTA: promo con denominatore ALFA (026/PLAY) dove collector_tuple
+    # ritorna None. La chiave-numero robusta deve tenere SOLO 026/PLAY, mai il vicino.
+    a = ad.CardRushAdapter()
+    q = ad.Query(url="x", match={"game": "pokemon", "pack": "", "model": "026",
+                                 "full": "026/PLAY", "name": "", "tier": ""})
+    html = _cardrush_html([
+        _cr("ブラッキー☆", "026/PLAY", "", 9000000),
+        _cr("ミュウツーex", "026/055", "", 85000),
+        _cr("基本超エネルギー", "026/DPt-P", "", 7500),
+    ])
+    offers = a.parse(html, q)
+    assert [o.price for o in offers] == [9000000]        # solo 026/PLAY
+
+
+def test_cardrush_pokemon_energy_gets_own_price_not_broadcast():
+    # l'energia base (026/DPt-P) deve prendere il SUO prezzo (7500), MAI il 9M di Umbreon
+    a = ad.CardRushAdapter()
+    q = ad.Query(url="x", match={"game": "pokemon", "pack": "", "model": "026",
+                                 "full": "026/DPt-P", "name": "基本超エネルギー", "tier": ""})
+    html = _cardrush_html([
+        _cr("ブラッキー☆", "026/PLAY", "", 9000000),
+        _cr("基本超エネルギー", "026/DPt-P", "", 7500),
+    ])
+    offers = a.parse(html, q)
+    assert [o.price for o in offers] == [7500]
+
+
+def test_cardrush_pokemon_abstains_without_identity_signal():
+    # nessun numero pieno/chiave ne' nome -> astensione (return []), mai max del bucket
+    a = ad.CardRushAdapter()
+    q = ad.Query(url="x", match={"game": "pokemon", "pack": "", "model": "旧裏",
+                                 "full": "旧裏", "name": "", "tier": ""})
+    html = _cardrush_html([
+        _cr("A", "旧裏", "", 9000000),
+        _cr("B", "旧裏", "", 100),
+    ])
+    assert a.parse(html, q) == []
+
+
 def test_hareruya_veto_mirror_only_base_abstains():
     # KILLER #2: per la carta base esistono SOLO le mirror -> astensione (no 1800).
     a = ad.HareruyaAdapter()

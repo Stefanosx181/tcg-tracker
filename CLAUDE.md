@@ -249,13 +249,19 @@ redesign **"Sumi 墨"** → `docs/UI_REDESIGN_SUMI.md`.
   (codici di 1 carattere, `その他`, voci `model_number` non-carta come `旧裏`); alcune carte hanno
   rarità `-`/vuota. È il prezzo di "tutte le carte"; eventuale pulizia = filtro AGGIUNTIVO, non
   rimuovere righe (lo storico non si cancella).
-- **[HARVEST BUG DA FIXARE] Prezzo "broadcast" nel bucket `その他`**: `harvest_pokemon_cardrush`
-  assegna lo STESSO prezzo a tutte le carte che condividono il `model_number` (l'URL è
-  `buying_prices?model_number=NNN` uguale per il gruppo) → un'energia base e una Gold Star
-  finiscono entrambe a ¥9.000.000. ~1049 prezzi inaffidabili, TUTTI in `その他`/`乱` (zero nei set
-  reali). Mitigazione ATTUALE: `_index` esclude `その他`/`乱` dall'indice (non compaiono in buylist
-  perché single-fonte); lo storico NON è cancellato. Fix vero = disambiguare le carte del bucket
-  `その他` nell'harvest (numero pieno/nome), lavoro dedicato di price-correctness.
+- **[RISOLTO 2026-07-01] Prezzo "broadcast" nel bucket `その他`/`乱`**: NON era l'harvest (che
+  scrive prezzi corretti per-carta, chiave = numero pieno) ma il **re-scrape per-carta** della cron
+  (`CardRushAdapter`): l'URL SPA usa solo il NUMERATORE + `pack=その他`, quindi la pagina torna tutte
+  le carte del numeratore; la porta-numero si spegneva (`collector_tuple` = None sui denominatori
+  alfa tipo 026/PLAY, 026/DPt-P) e, senza nome, `select()` cadeva su `max()` → il prezzo più alto
+  del bucket (Umbreon ¥9M) finiva su tutte, energia base inclusa. Fix: (a) `build_query` NON
+  ri-scrapa i bucket `その他`/`乱` (`sc.POKEMON_NOISE_BUCKETS`) — il prezzo giusto lo scrive
+  l'harvest; (b) porta-numero robusta ai promo (`sc.full_number_key`, confronta il numero PIENO come
+  stringa quando il denominatore è alfa) + **astensione** in `parse` se nessun segnale d'identità
+  (mai `max()`). `_index` continua a escludere i bucket. Storico ripulito: 1339 righe broadcast
+  marcate `rejected` (mai cancellate). Lockato da `tests/test_adapters.py`. Resta minore: qualche
+  prezzo-singleton alto nei bucket (non-broadcast, comunque invisibile) e le collisioni analoghe
+  lato **Hareruya** nel bucket (indagine separata).
 - **Casing dei set**: i set Pokémon usano il casing ESATTO di CardRush (`S12a`, `M1L`, `sm12a`…);
   l'harvest fa match esatto su `set_code` (nessuna collisione riscontrata col catalogo curato).
   `full_name` mescola ancora JP/EN e a volte ripete il set.

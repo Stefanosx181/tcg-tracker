@@ -355,6 +355,31 @@ def collector_tuple(text: str):
     return (m.group(1).lstrip("0") or "0", m.group(2).lstrip("0") or "0") if m else None
 
 
+def full_number_key(text: str):
+    """Chiave d'identita' del numero PIENO ROBUSTA ai PROMO col denominatore NON
+    numerico (026/PLAY, 026/DPt-P, 145/BW-P, 397/SM-P) dove collector_tuple() ritorna
+    None e la porta-numero si spegnerebbe. Numeratore senza zeri iniziali + denominatore
+    normalizzato (upper). None se non c'e' struttura 'num/den'. NB: per i numeri standard
+    (den numerico) da' comunque una chiave confrontabile ('262/170'); dove serve la COPPIA
+    numerica (set reali) usare collector_tuple()."""
+    m = re.search(r"(\d+)\s*/\s*([0-9A-Za-z\-]+)", text or "")
+    if not m:
+        return None
+    num = m.group(1).lstrip("0") or "0"
+    den = m.group(2).strip().upper().lstrip("0") or "0"
+    return f"{num}/{den}"
+
+
+# Bucket "grab-bag" di CardRush (NON set reali): promo/old-back/sfusi raccolti sotto un
+# placeholder (その他='Other', 乱='Misc'). Il loro model_number e' solo il NUMERATORE +
+# pack='その他', quindi l'URL per-carta restituisce carte ETEROGENEE non disambiguabili
+# -> il re-scrape per-carta finiva col broadcastare il prezzo piu' alto del bucket a tutte
+# (energia base a 9M). Usati per: (1) NON ri-scrapare per-carta questi bucket (il prezzo
+# giusto lo scrive l'harvest completo, chiave = numero pieno); (2) tenerli fuori
+# dall'indice (database._index). Vedi docs/IDENTITY_ENGINE_SPEC.md.
+POKEMON_NOISE_BUCKETS = {"その他", "乱"}
+
+
 def _norm_set_tag(tag: str) -> str:
     """Normalizza un set tag per il confronto: upper, strip, via il suffisso
     variante dopo '-' ('SV2a-Ma' -> 'SV2A'). Il suffisso resta segnale di stampa."""

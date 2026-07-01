@@ -166,6 +166,12 @@ class CardRushAdapter(SourceAdapter):
             model = (str(_field(card, "model_number", "") or "").strip()
                      or number.split("/")[0])
             pack = _field(card, "pack_code", "") or ""
+            # BUCKET grab-bag (その他/乱): l'URL SPA per NUMERATORE+pack='その他' torna
+            # carte ETEROGENEE non disambiguabili -> NON ri-scrapare per-carta (era la
+            # fonte del broadcast: select() cadeva su max() = 9M a tutte, energia base
+            # inclusa). Il prezzo CR corretto per-carta lo scrive gia' l'harvest completo.
+            if pack in sc.POKEMON_NOISE_BUCKETS:
+                return Query(url="", match={})
             # 'full' = numero PIENO per il match (num+den); 'model' resta il numeratore
             # SOLO per costruire l'URL SPA anti-403. 'name'/'tier' = porte identita'.
             return Query(url=sc.pokemon_cardrush_url(model, pack), match={
@@ -194,9 +200,16 @@ class CardRushAdapter(SourceAdapter):
         want_model = query.match.get("model", "")
         # POKEMON: porte identita' (numero PIENO + nome + tier). Vedi IDENTITY_ENGINE_SPEC.
         want_full = sc.collector_tuple(query.match.get("full", "")) if is_pk else None
+        # chiave-numero ROBUSTA ai promo (denominatore alfa: 026/PLAY) dove collector_tuple=None
+        want_full_key = sc.full_number_key(query.match.get("full", "")) if is_pk else None
         want_name = query.match.get("name", "") if is_pk else ""
         want_tier_pk = (query.match.get("tier", "") or "") if is_pk else ""
         want_tier_op = (query.match.get("variant", "") or "") or "base"
+        # ASTENSIONE d'identita' (Pokemon): senza ALCUN segnale (ne' numero pieno, ne'
+        # chiave-numero robusta, ne' nome) la carta non e' distinguibile nel gruppo ->
+        # nessun offer, MAI far cadere select() su max() (= prezzo piu' alto del bucket).
+        if is_pk and not (want_full or want_full_key or want_name):
+            return []
         offers = []
         for it in items:
             if not isinstance(it, dict):
@@ -208,7 +221,12 @@ class CardRushAdapter(SourceAdapter):
             pack = str(it.get("pack_code", ""))
             # PORTA NUMERO: Pokemon = numero PIENO (num+den); OP/YGO = invariato (codice/prefisso)
             if is_pk:
-                if want_full and sc.collector_tuple(model) != want_full:
+                if want_full:
+                    if sc.collector_tuple(model) != want_full:
+                        continue
+                # promo con denominatore ALFA (026/PLAY): collector_tuple=None -> la
+                # porta si spegnerebbe; usa la chiave-numero robusta e NON bypassare.
+                elif want_full_key and sc.full_number_key(model) != want_full_key:
                     continue
             elif want_model and not (model == want_model or model.split("/")[0] == want_model):
                 continue

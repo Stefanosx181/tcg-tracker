@@ -573,7 +573,8 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
     # cancellati (storico intatto): sono solo tenuti fuori dal TREND. Non compaiono
     # comunque in buylist (single-fonte, non comparabili). La correzione a monte
     # (harvest del bucket その他) resta un lavoro dedicato.
-    _NOISE_BUCKETS = {"その他", "乱"}
+    import scrapers as _sc
+    _NOISE_BUCKETS = _sc.POKEMON_NOISE_BUCKETS   # unica fonte di verita' (adapters + indice)
     card_set = {str(r["card_id"]): r["set_name"] for r in rows
                 if r.get("pack_code") not in _NOISE_BUCKETS}
     card_game = {str(r["card_id"]): r.get("game") for r in rows
