@@ -560,33 +560,73 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
               ensure_ascii=False, default=str)
 
     # --- indice di prezzo per set (media ponderata a pesi fissi) ----------
-    # Peso carta = prezzo / totale set alla DATA BASE (prima data del set),
-    # fissato; indice(data) = somma(prezzo(data) * peso_base). Stesso calcolo
+    # Peso carta = prezzo alla PRIMA data della carta, fisso; indice(data) =
+    # Σ(prezzo(data)·peso_base)/Σ(peso_base) sulle carte entrate. Stesso calcolo
     # del foglio "Charts" (verificato). L'aggregato 'global' e' PER-GIOCO
     # (il foglio Charts e' Pokémon): niente piu' aggregato cross-gioco senza senso.
-    card_set = {str(r["card_id"]): r["set_name"] for r in rows}
-    card_game = {str(r["card_id"]): r.get("game") for r in rows}
+    #
+    # ESCLUSI dall'indice i bucket grab-bag di CardRush (その他/乱 = "Other"/"Misc"):
+    # NON sono set reali (promo/old-back/sfusi senza pack_code) e l'harvest vi
+    # assegna un UNICO prezzo a tutte le carte che condividono il model_number
+    # (es. un'energia base e una Gold Star entrambe a 9.000.000) -> prezzi
+    # inaffidabili che gonfiavano l'aggregato per-gioco. I prezzi NON vengono
+    # cancellati (storico intatto): sono solo tenuti fuori dal TREND. Non compaiono
+    # comunque in buylist (single-fonte, non comparabili). La correzione a monte
+    # (harvest del bucket その他) resta un lavoro dedicato.
+    _NOISE_BUCKETS = {"その他", "乱"}
+    card_set = {str(r["card_id"]): r["set_name"] for r in rows
+                if r.get("pack_code") not in _NOISE_BUCKETS}
+    card_game = {str(r["card_id"]): r.get("game") for r in rows
+                 if r.get("pack_code") not in _NOISE_BUCKETS}
 
-    def _index(price_by_date):
-        """price_by_date: {date: {card_id: price}} -> [[date, indice], ...]."""
-        dates = sorted(price_by_date)
-        if not dates:
+    def _index(price_by_date, output_dates=None):
+        """price_by_date: {date: {card_id: price}} -> [[date, indice], ...].
+
+        Indice a PESI FISSI (Laspeyres, come il foglio Charts/Market Trend):
+          - peso(carta) = prezzo alla PRIMA data in cui la carta compare (la sua
+            "data base"), FISSO per sempre. Le carte dell'Excel hanno la loro prima
+            data = 2026-04-07; le carte NUOVE (harvest) = il loro primo giorno.
+            Il peso NON si ricalcola e NON dipende dal giorno.
+          - una volta ENTRATA, la carta resta nel basket: se un giorno manca il
+            prezzo si RIPORTA l'ultimo noto (carry-forward nell'indice, come fa
+            l'Excel a mano). Cosi' il peso EFFETTIVO non varia in base a quali
+            carte sono state scrapate quel giorno.
+          - indice(d) = Σ prezzo*(c,d)·peso(c) / Σ peso(c), sulle carte ENTRATE
+            entro d. Il denominatore e' la somma dei pesi delle carte entrate
+            (stabile: cambia solo quando ENTRA una carta nuova, non giorno per
+            giorno) -> niente rinormalizzazione giornaliera.
+
+        `output_dates`: se dato, l'indice viene EMESSO su queste date (la griglia
+        UNIONE tra le fonti del set). Nei giorni in cui questa fonte NON e' stata
+        scrapata (es. una notte girata solo Hareruya) si RIPORTA l'ultimo prezzo
+        noto per ogni carta -> CardRush non "sparisce" e le due serie restano
+        allineate sulle stesse date. Prima della prima data-dato della fonte
+        (nessuna carta entrata) la data viene saltata (niente carry all'indietro).
+
+        Il total_base dell'Excel si semplifica nella media normalizzata, quindi il
+        peso e' direttamente il prezzo-base della carta (scala irrilevante).
+        """
+        data_dates = sorted(price_by_date)
+        if not data_dates:
             return []
-        base = price_by_date[dates[0]]
-        total_base = sum(base.values())
-        if not total_base:
-            return []
-        weights = {c: p / total_base for c, p in base.items()}
+        emit = set(output_dates) if output_dates is not None else set(data_dates)
+        timeline = sorted(set(data_dates) | emit)   # aggiorna sui dati, emette su emit
+        weight = {}   # card_id -> peso base = prezzo alla sua PRIMA data (FISSO)
+        last = {}     # card_id -> ultimo prezzo noto (carry-forward nell'indice)
         out = []
-        for d in dates:
-            present = price_by_date[d]
-            # rinormalizza sui pesi delle carte presenti in questa data: evita
-            # cali artificiali quando una carta manca (buchi nello storico).
-            num = sum(present.get(c, 0) * w for c, w in weights.items())
-            den = sum(w for c, w in weights.items() if c in present)
-            # se in questa data NESSUNA carta del set ha prezzo (es. tutte rejected/
-            # assenti quel giorno) -> SALTA la data, NON emettere 0: altrimenti il
-            # grafico precipita a zero e risale (storico "sballato").
+        for d in timeline:
+            for c, p in price_by_date.get(d, {}).items():
+                if p is None:
+                    continue
+                last[c] = p
+                weight.setdefault(c, p)   # primo prezzo visto = peso base, fisso
+            if d not in emit:
+                continue
+            # carte ENTRATE = quelle con un peso base (first_day <= d); una volta
+            # entrate hanno sempre un 'last' (carry-forward), quindi restano nel
+            # basket anche nei giorni in cui non sono state scrapate.
+            num = sum(last[c] * w for c, w in weight.items())
+            den = sum(weight.values())
             if den:
                 out.append([d, round(num / den, 1)])
         return out
@@ -605,10 +645,16 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
         return acc
 
     def _index_entry(acc):
-        """Indice per ciascuna fonte presente in acc -> {source: serie}."""
+        """Indice per ciascuna fonte presente in acc -> {source: serie}.
+
+        Le fonti dello stesso set vengono EMESSE sulla stessa griglia UNIONE di
+        date: se una notte e' girata solo Hareruya, CardRush riporta il prezzo del
+        giorno prima (e viceversa) -> nessuna fonte ha "giorni in piu'" scoperti,
+        le serie restano allineate."""
+        grid = sorted({d for by_date in acc.values() for d in by_date})
         entry = {}
         for src, by_date in acc.items():
-            s = _index(by_date)
+            s = _index(by_date, output_dates=grid)
             if s:
                 entry[src] = s
         return entry

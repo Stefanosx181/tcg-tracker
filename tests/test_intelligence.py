@@ -160,13 +160,16 @@ def test_official_index_unaffected_by_outlier_but_normalized_excludes_it(tmp_pat
     db.export_web(conn, out)
     idx = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
 
-    # pesi base d0: total=400 -> wA=.25, wB=.75
+    # pesi base FISSI d0 (prima data di ogni carta): wA=100, wB=300 (scala
+    # irrilevante nella media normalizzata) -> indice(d0)= (100*100+300*300)/400 =250
     off = dict(idx["global"]["pokemon"]["cardrush"])
     norm = dict(idx["global_norm"]["pokemon"]["cardrush"])
-    # UFFICIALE d3: 1000*.25 + 300*.75 = 475.0 (lo spike PASSA, come da contratto)
+    # UFFICIALE d3: (1000*100 + 300*300)/400 = 475.0 (lo spike PASSA, come da contratto)
     assert off["2026-01-22"] == 475.0
-    # NORMALIZZATO d3: A scartato (outlier) -> resta solo B: 300*.75 / .75 = 300.0
-    assert norm["2026-01-22"] == 300.0
+    # NORMALIZZATO d3: A e' outlier a d3 -> escluso dalla serie norm, ma A resta nel
+    # basket col suo ULTIMO prezzo sano (105 a d2, carry-forward nell'indice):
+    # (105*100 + 300*300)/400 = 251.2  (!= 475.0 ufficiale: la norma esclude lo spike)
+    assert norm["2026-01-22"] == 251.2
     # le date senza outlier coincidono tra ufficiale e normalizzato
     assert off["2026-01-01"] == norm["2026-01-01"]
 
@@ -218,20 +221,73 @@ def test_buylist_only_comparable_and_excludes_rejected(tmp_path):
     assert "999999" not in blob
 
 
-def test_index_skips_dates_without_base_cards(tmp_path):
-    # Una data in cui le carte presenti NON erano alla data base (peso assente) ->
-    # den=0 -> la data va SALTATA, NON emessa come 0 (niente crollo a zero nel grafico).
+def test_new_card_enters_from_its_first_day_others_carried(tmp_path):
+    # Carta nuova B aggiunta DOPO: ENTRA nell'indice dal suo primo giorno col suo
+    # peso base (=999), NON resta esclusa. La carta A, non scrapata quel giorno,
+    # resta nel basket col suo ultimo prezzo (carry-forward nell'indice). Niente
+    # crollo a zero: il peso e' fisso, non dipende da cosa e' stato scrapato.
     conn = _make_v2(str(tmp_path / "t.db"), [(1, "A"), (2, "B")])
-    db.save_price(conn, 1, "cardrush", 100, run_date="2026-01-01 00:00:00")  # base: solo A
+    db.save_price(conn, 1, "cardrush", 100, run_date="2026-01-01 00:00:00")  # A: base 01-01
     db.save_price(conn, 1, "cardrush", 120, run_date="2026-01-08 00:00:00")
-    db.save_price(conn, 2, "cardrush", 999, run_date="2026-01-15 00:00:00")  # B: mai a base
+    db.save_price(conn, 2, "cardrush", 999, run_date="2026-01-15 00:00:00")  # B: base 01-15
     out = str(tmp_path / "data")
     db.export_web(conn, out)
     si = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
-    serie = si["sets"]["VSTAR Universe"]["cardrush"]
-    vals = [v for _, v in serie]
+    serie = dict(si["sets"]["VSTAR Universe"]["cardrush"])
+    vals = list(serie.values())
     assert 0 not in vals                       # nessun punto a zero
-    assert "2026-01-15" not in [d for d, _ in serie]   # data senza carte-base SALTATA
+    # tutte e 3 le date presenti: la nuova NON viene saltata
+    assert set(serie) == {"2026-01-01", "2026-01-08", "2026-01-15"}
+    assert serie["2026-01-01"] == 100.0        # solo A: media = suo prezzo
+    assert serie["2026-01-08"] == 120.0        # A sale, peso base fisso (100)
+    # 01-15: B entra (peso 999) + A riportata (120): (120*100 + 999*999)/(100+999)
+    assert serie["2026-01-15"] == 919.0
+
+
+def test_sources_aligned_on_union_dates_carry_forward(tmp_path):
+    # Una notte gira SOLO Hareruya (giorno "in piu'"): CardRush deve RIPORTARE il
+    # prezzo del giorno prima per le carte mancanti, cosi' le due serie dell'indice
+    # restano allineate sulle stesse date (niente giorni scoperti su CR).
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A")])
+    db.save_price(conn, 1, "cardrush", 100, run_date="2026-01-01 00:00:00")
+    db.save_price(conn, 1, "hareruya", 90,  run_date="2026-01-01 00:00:00")
+    db.save_price(conn, 1, "cardrush", 120, run_date="2026-01-08 00:00:00")
+    db.save_price(conn, 1, "hareruya", 110, run_date="2026-01-08 00:00:00")
+    # 01-15: SOLO hareruya
+    db.save_price(conn, 1, "hareruya", 130, run_date="2026-01-15 00:00:00")
+
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    si = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
+    cr = dict(si["sets"]["VSTAR Universe"]["cardrush"])
+    hr = dict(si["sets"]["VSTAR Universe"]["hareruya"])
+    # entrambe le fonti hanno un punto anche il 15 (griglia unione)
+    assert "2026-01-15" in cr and "2026-01-15" in hr
+    # CR il 15 = RIPORTO del giorno prima (120), non scomparsa
+    assert cr["2026-01-15"] == 120.0
+    assert hr["2026-01-15"] == 130.0
+
+
+def test_noise_buckets_excluded_from_index(tmp_path):
+    # I bucket grab-bag その他/乱 (prezzi harvest inaffidabili) NON entrano
+    # nell'indice ne' nell'aggregato per-gioco; lo storico NON viene cancellato.
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A")])
+    conn.execute("INSERT INTO tcg_set (id,game_code,set_code,set_name,display_order)"
+                 " VALUES (2,'pokemon','その他','Other',99)")
+    conn.execute("INSERT INTO tcg_card (id,set_id,number,name) VALUES (2,2,'026','junk')")
+    conn.commit()
+    db.save_price(conn, 1, "cardrush", 100, run_date="2026-01-01 00:00:00")
+    db.save_price(conn, 1, "hareruya", 120, run_date="2026-01-01 00:00:00")
+    db.save_price(conn, 2, "cardrush", 9000000, run_date="2026-01-01 00:00:00")  # garbage
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    si = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
+    # il bucket 'Other' non ha una serie d'indice; il prezzo 9M non e' nell'aggregato
+    assert "Other" not in si["sets"]
+    assert "9000000" not in json.dumps(si)
+    # ma il prezzo garbage e' ancora nello storico (non cancellato)
+    n = conn.execute("SELECT COUNT(*) FROM tcg_price WHERE price_raw=9000000").fetchone()[0]
+    assert n == 1
 
 
 def test_health_json_written(tmp_path):

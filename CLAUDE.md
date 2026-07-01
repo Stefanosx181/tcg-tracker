@@ -87,8 +87,11 @@ Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
   notturno di Hareruya che si auto-coordina su piu' run), `export_web` (JSON
   multi-fonte: ogni riga buylist ha `prices`{source:{price,comm,stock,status,outlier}} + `game`
   + `trend`{source:{d7,d30,d90}}, `best_*` su tutte le fonti; indice/trend per fonte dinamica).
-  `setindex.json`: indice UFFICIALE (`sets` + `global` PER-GIOCO `{game:{source:serie}}`, pesi
-  fissi alla data base = foglio Charts) + vista NORMALIZZATA anti-outlier (`sets_norm`/`global_norm`).
+  `setindex.json`: indice UFFICIALE (`sets` + `global` PER-GIOCO `{game:{source:serie}}`, PESI
+  FISSI al PRIMO GIORNO di ogni carta = foglio Charts; carte nuove entrano dal loro primo giorno;
+  carry-forward nell'indice + fonti allineate sulla griglia UNIONE di date; bucket grab-bag
+  `その他`/`乱` esclusi) + vista NORMALIZZATA anti-outlier (`sets_norm`/`global_norm`). Vedi
+  `_index`/`_index_entry`.
   `ensure_intelligence_columns` aggiunge le colonne Fase 3 ai DB v2 esistenti (idempotente).
   SEGNALI azionabili (`movers.json`): `compute_alerts` (puro) calcola SPREAD best-vs-second tra
   negozi + MOVERS 7gg, usando SOLO prezzi affidabili (confirmed+non-outlier) e `series_norm`
@@ -246,6 +249,13 @@ redesign **"Sumi 墨"** → `docs/UI_REDESIGN_SUMI.md`.
   (codici di 1 carattere, `その他`, voci `model_number` non-carta come `旧裏`); alcune carte hanno
   rarità `-`/vuota. È il prezzo di "tutte le carte"; eventuale pulizia = filtro AGGIUNTIVO, non
   rimuovere righe (lo storico non si cancella).
+- **[HARVEST BUG DA FIXARE] Prezzo "broadcast" nel bucket `その他`**: `harvest_pokemon_cardrush`
+  assegna lo STESSO prezzo a tutte le carte che condividono il `model_number` (l'URL è
+  `buying_prices?model_number=NNN` uguale per il gruppo) → un'energia base e una Gold Star
+  finiscono entrambe a ¥9.000.000. ~1049 prezzi inaffidabili, TUTTI in `その他`/`乱` (zero nei set
+  reali). Mitigazione ATTUALE: `_index` esclude `その他`/`乱` dall'indice (non compaiono in buylist
+  perché single-fonte); lo storico NON è cancellato. Fix vero = disambiguare le carte del bucket
+  `その他` nell'harvest (numero pieno/nome), lavoro dedicato di price-correctness.
 - **Casing dei set**: i set Pokémon usano il casing ESATTO di CardRush (`S12a`, `M1L`, `sm12a`…);
   l'harvest fa match esatto su `set_code` (nessuna collisione riscontrata col catalogo curato).
   `full_name` mescola ancora JP/EN e a volte ripete il set.
