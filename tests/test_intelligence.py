@@ -312,6 +312,43 @@ def test_history_fills_per_card_gaps_across_sources(tmp_path):
     assert dict(s["hareruya"]) == {"2026-01-01": 90, "2026-01-08": 110, "2026-01-15": 110}
 
 
+def test_history_smooths_isolated_spike_without_touching_db(tmp_path):
+    # un prezzo HR palesemente sbagliato (25000) smentito dal giorno DOPO (3000) e dalla
+    # CROSS-fonte stesso giorno (CR 4000) viene EQUILIBRATO col valore del giorno dopo
+    # (3000). Lo storico grezzo NON viene toccato ne' marcato (resta 25000 confirmed).
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A")])
+    db.save_price(conn, 1, "cardrush", 4000,  run_date="2026-06-29 00:00:00")
+    db.save_price(conn, 1, "hareruya", 25000, run_date="2026-06-29 00:00:00")   # spike
+    db.save_price(conn, 1, "hareruya", 3000,  run_date="2026-06-30 00:00:00")
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    s = json.load(open(os.path.join(out, "history.json"), encoding="utf-8"))["series"]["1"]
+    assert dict(s["hareruya"])["2026-06-29"] == 3000       # equilibrato, non 25000
+    # lo storico grezzo resta intatto (niente rejected, niente overwrite nel DB)
+    raw = conn.execute("""SELECT price_raw, price_status FROM tcg_price WHERE card_id=1
+        AND source_code='hareruya' AND substr(scraped_at,1,10)='2026-06-29'""").fetchone()
+    assert raw[0] == 25000 and raw[1] == "confirmed"
+    # lo spike non compare nell'indice
+    si = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
+    assert "25000" not in json.dumps(si)
+
+
+def test_smoothing_keeps_real_moves_and_charts_window(tmp_path):
+    # NON deve equilibrare un movimento REALE: se le due fonti CONCORDANO su un valore
+    # alto (non c'e' cross-fonte piu' bassa), il prezzo resta. E la finestra Charts
+    # (senza spike) resta identica alla formula Excel.
+    conn = _make_v2(str(tmp_path / "t.db"), [(1, "A"), (2, "B")])
+    db.save_price(conn, 1, "cardrush", 100, run_date="2026-01-01 00:00:00")
+    db.save_price(conn, 2, "cardrush", 300, run_date="2026-01-01 00:00:00")
+    db.save_price(conn, 1, "cardrush", 120, run_date="2026-01-08 00:00:00")
+    db.save_price(conn, 2, "cardrush", 270, run_date="2026-01-08 00:00:00")
+    out = str(tmp_path / "data")
+    db.export_web(conn, out)
+    idx = json.load(open(os.path.join(out, "setindex.json"), encoding="utf-8"))
+    assert idx["global"]["pokemon"]["cardrush"] == [["2026-01-01", 250.0],
+                                                    ["2026-01-08", 232.5]]
+
+
 def test_gap_fill_does_not_touch_official_index(tmp_path):
     # il riempimento buchi e' SOLO per history.json: l'indice ufficiale (setindex)
     # resta byte-identico alla formula Excel (pesi fissi).

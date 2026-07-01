@@ -355,6 +355,39 @@ def _comparable(r):
     return sum(1 for v in (r.get("prices") or {}).values() if (v.get("price") or 0) > 0) >= 2
 
 
+def _smooth_spikes(series, ratio=4.0):
+    """'Equilibra' gli SPIKE isolati nella serie storica: un prezzo > ratio× SIA il
+    valore adiacente della STESSA fonte SIA la CROSS-fonte dello stesso giorno e' quasi
+    certo un mismatch momentaneo (poi corretto il giorno dopo). Lo si SOSTITUISCE col
+    valore del giorno SUCCESSIVO della stessa fonte (o del precedente se manca) -> il
+    grafico/indice non mostra il picco. NON tocca il DB (lo storico grezzo resta): agisce
+    SOLO sulle serie esportate. Dove non ci sono spike la serie e' invariata (quindi la
+    finestra storica del foglio Charts, senza spike, resta byte-identica).
+
+    series: {card_id: {source: [[day, price], ...]}} -> stessa struttura, equilibrata."""
+    out = {}
+    for cid, by_src in series.items():
+        daymap = {s: {d: p for d, p in pts if p is not None} for s, pts in by_src.items()}
+        new = {}
+        for src, pts in by_src.items():
+            fixed = []
+            for i, (d, p) in enumerate(pts):
+                nxt = pts[i + 1][1] if i + 1 < len(pts) else None
+                prv = pts[i - 1][1] if i > 0 else None
+                if p and p > 0:
+                    neigh = [v for v in (prv, nxt) if v]
+                    cross = [daymap[s].get(d) for s in daymap if s != src]
+                    cross = [v for v in cross if v]
+                    if (any(v < p / ratio for v in neigh)
+                            and any(v < p / ratio for v in cross)):
+                        fixed.append([d, nxt or prv or p])   # copia il giorno SUCCESSIVO
+                        continue
+                fixed.append([d, p])
+            new[src] = fixed
+        out[cid] = new
+    return out
+
+
 def _fill_card_gaps(by_src):
     """Riempie i BUCHI per-carta della serie storica: ogni fonte viene emessa su TUTTE
     le date in cui QUALSIASI fonte della carta ha un punto. Giorno mancante = ULTIMO
@@ -508,6 +541,12 @@ def export_web(conn, out_dir, *, move_pct=15.0, spread_pct=20.0, alert_hook=None
     series_norm = {}
     for card_id, source, day, price in cur.fetchall():
         series_norm.setdefault(str(card_id), {}).setdefault(source, []).append([day, price])
+
+    # EQUILIBRA gli spike isolati (prezzo sbagliato momentaneo, es. mismatch HR poi
+    # corretto): sostituiti col valore del giorno dopo. Agisce su grafico+indice+trend,
+    # NON sul DB. La finestra Charts (senza spike) resta byte-identica.
+    series = _smooth_spikes(series)
+    series_norm = _smooth_spikes(series_norm)
 
     # history.json: serie per-carta con i BUCHI RIEMPITI (giorno prima / giorno dopo)
     # cosi' CR e HR sono allineate nel grafico storico anche se una notte gira solo una
