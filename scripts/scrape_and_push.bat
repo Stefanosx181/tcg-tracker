@@ -21,6 +21,11 @@ REM ============================================================================
 setlocal
 cd /d "%~dp0.."
 
+REM Console UTF-8: evita UnicodeEncodeError quando Python stampa nomi/codici giapponesi
+REM (la cmd di Windows usa cp1252). Rinforza la riconfigurazione stdout gia' in run.py.
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+
 REM Hareruya: quante carte per run (scelte per STALENESS, le piu' vecchie prima).
 REM 11000 >= catalogo -> refresh COMPLETO ogni run (puo' durare alcune ore: schedula
 REM di notte). Vuoi run piu' corti? Abbassa (es. 3000): su piu' run si copre tutto a

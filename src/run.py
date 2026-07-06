@@ -29,6 +29,16 @@ import scrapers as sc
 import adapters as ad
 import build_catalog as bc
 
+# Console a prova di UTF-8: su Windows la cmd usa cp1252 e le print di nomi/codici
+# giapponesi (progresso scraping) crasherebbero con UnicodeEncodeError, fermando l'intero
+# run. Rendiamo stdout/stderr tolleranti (utf-8, sostituisce i non codificabili): una
+# stampa di log non deve MAI interrompere lo scrape. (PYTHONUTF8=1 nel .bat = rinforzo.)
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = os.path.dirname(__file__)
 DATA_DIR = os.path.join(HERE, "..", "dashboard", "data")
 LEGACY_JSON = os.path.join(HERE, "..", "dashboard", "buylist_live.json")
