@@ -15,6 +15,25 @@ blocca), al posto del cron cloud. Vale per **qualsiasi PC Windows**: lo script �
 
 ---
 
+## Setup RAPIDO (consigliato) — script `scripts/setup_runner.ps1`
+Dopo aver installato i prerequisiti e clonato il repo (passi 1–4 sotto), da PowerShell
+**nella cartella del repo**:
+```
+powershell -ExecutionPolicy Bypass -File scripts\setup_runner.ps1
+```
+Lo script (idempotente) verifica Python+git, installa le dipendenze e **crea l'attività
+pianificata settimanale** (lunedì 02:00) che lancia `scrape_and_push.bat`. Restano solo,
+una volta sola: `gh auth login` (autenticazione push) e un primo run di prova.
+
+> **Se stai usando Claude Code su questo PC:** puoi chiedere a Claude di eseguire
+> `scripts/setup_runner.ps1` per te (installa deps + crea la pianificazione). Claude NON può
+> fare `gh auth login` (serve il browser): quella la fai tu. Personalizza giorno/ora con
+> `-Day` / `-Time` (es. `... setup_runner.ps1 -Day Sunday -Time 23:00`).
+
+Preferisci farlo a mano / capire ogni passo? Segui la guida dettagliata qui sotto.
+
+---
+
 ## Cosa fa lo script `scripts/scrape_and_push.bat`
 1. **CardRush**: harvest catalogo + tutti i prezzi (lista SPA, veloce).
 2. **Hareruya**: prezzi per-carta/set (batch per staleness).

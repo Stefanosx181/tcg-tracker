@@ -155,6 +155,34 @@ pytest                           # test scraper+migrazione+adapter offline (usa 
 
 ---
 
+## 🔄 Aggiornamento prezzi — RUNNER DAL PC (stato attuale, 2026-07-06)
+
+**Come si aggiornano i prezzi ORA:** dal PC, NON dal cloud. CardRush blocca con **403** gli IP
+datacenter di GitHub Actions (anche per-carta, intermittente) → il **cron in `scrape.yml` è
+DISATTIVATO** (`schedule:` commentato). L'aggiornamento gira da un PC (IP residenziale) con:
+- **`scripts/scrape_and_push.bat`** — CardRush harvest + Hareruya + export + commit/push. Portabile
+  (percorsi relativi al repo, nessuna cartella utente cablata) → gira su qualunque PC con repo +
+  Python (`py`) + git con push.
+- **`scripts/setup_runner.ps1`** — setup one-shot: verifica prereq, installa deps, crea l'attività
+  pianificata settimanale. `powershell -ExecutionPolicy Bypass -File scripts\setup_runner.ps1`.
+- **`docs/RUNNER_SETUP.md`** — guida passo-passo per un PC nuovo (prereq, clone, auth push,
+  pianificazione, spostamento su altro PC, troubleshooting).
+
+**⚠️ REGOLA D'ORO — un solo scrittore del DB alla volta.** `tcg_tracker.db` è un file BINARIO
+committato: due macchine (o PC + cron) che lo scrivono = conflitti di push. Col runner PC attivo il
+cron cloud resta SPENTO. Cambi PC? Configura il nuovo e togli la pianificazione dal vecchio.
+
+**Se stai configurando il runner su un PC nuovo (anche via Claude):** esegui `setup_runner.ps1`
+(installa deps + pianificazione); l'utente fa `gh auth login` (push, serve il browser). Poi
+`Start-ScheduledTask -TaskName 'TCG prezzi settimanale'` per il primo giro.
+
+**Proxy = opzione FUTURA (non attiva ora).** Per tornare full-cloud senza PC: proxy residenziale
+(secret `SCRAPER_PROXY`, già usato da `discovery.yml`) da cablare anche nel cron + riattivare
+`schedule:`. Dettagli in fondo a `docs/RUNNER_SETUP.md` (sezione Note). NON farlo finché il runner
+PC è attivo (doppio scrittore).
+
+---
+
 ## ⛔ VINCOLI INVALICABILI
 
 1. **NON cancellare mai lo storico prezzi in `tcg_price`.** Nessuna migrazione/refactor deve
