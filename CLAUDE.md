@@ -61,11 +61,13 @@ CATALOGO OP/YGO  = pagina-set Yuyu-tei (build_catalog.harvest, set per set)
    → src/database.py  (accesso DB, save_price con carry-forward, fetch_cards_stale, export_web)
    → dashboard/data/*.json (buylist.json, history.json, setindex.json, movers.json)
    → dashboard/ (statica, Cloudflare Pages)
-GitHub Actions (scrape.yml) → PREZZI per-carta CardRush + Hareruya per staleness, in CLOUD senza PC
-   (CardRush per-carta in forma SPA passa il 403; la LISTA no). Cron SETTIMANALE: 1 notte (lunedì),
-   4 finestre scaglionate da 2.600/fonte (=10.400 ≥ catalogo) → giro COMPLETO ma Hareruya spezzato.
-   Repo PUBBLICO = minuti Actions illimitati. Aggiornamento SOLO automatico: nessun bottone/endpoint
-   on-demand (rimosso). discovery.yml (dispatch, secret SCRAPER_PROXY) = scoperta carte nuove. → commit DB+JSON
+AGGIORNAMENTO PREZZI = dal PC (2026-07-06): CardRush ora blocca con 403 gli IP datacenter di GitHub
+   ANCHE per-carta (intermittente) → il cron cloud falliva spesso. Il **cron in scrape.yml è
+   DISATTIVATO**; l'aggiornamento gira dal PC (IP residenziale) con `scripts/scrape_and_push.bat`
+   (CardRush harvest + Hareruya + export + commit/push), pianificato con l'Utilità di pianificazione.
+   Guida: `docs/RUNNER_SETUP.md`. ⚠️ UN SOLO scrittore del DB alla volta (file binario) → col runner PC
+   attivo il cron resta spento. scrape.yml resta invocabile a mano (workflow_dispatch, es. Hareruya-only).
+   discovery.yml (dispatch, secret SCRAPER_PROXY) = scoperta carte nuove. Commit → Cloudflare Pages redeploy.
 Cloudflare Worker (worker.js) → auth (Access JWT) + POST /api/trigger
 ```
 
